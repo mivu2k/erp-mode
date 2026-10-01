@@ -106,9 +106,10 @@ export class AuthController {
     return this.auth.revokeSessions(userId);
   }
 
+  // HTTPS-only in production; COOKIE_SECURE=false allows a plain-http:// LAN install (private IP, no certificate).
   private respond(res: Response, t: TokenPair) {
     res.cookie(COOKIE, t.refreshToken, {
-      httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/auth', expires: t.refreshExpiresAt,
+      httpOnly: true, secure: process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/auth', expires: t.refreshExpiresAt,
     });
     return t;
   }
