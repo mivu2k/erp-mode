@@ -1,0 +1,33 @@
+/// definition: { resource, columns, filters, groupBy, aggregates, sort, limit, chart }
+model SavedReport {
+  id          String    @id @default(cuid())
+  companyId   String
+  name        String
+  description String?
+  definition  Json
+  /// role ids allowed to see it (empty = creator + admins)
+  sharedRoles Json?
+  schedule    String? // daily | weekly | monthly
+  recipients  Json?
+  lastSentAt  DateTime?
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+}
+
+/// widgets: [{ reportId, type: table|bar|line|pie|area|kpi, w, h, x, y }]
+model Dashboard {
+  id          String    @id @default(cuid())
+  companyId   String
+  name        String
+  roleId      String?
+  userId      String?
+  widgets     Json      @default("[]")
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+}

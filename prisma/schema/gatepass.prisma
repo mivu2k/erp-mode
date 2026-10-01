@@ -1,0 +1,58 @@
+model Gatepass {
+  id              String         @id @default(cuid())
+  companyId       String
+  branchId        String?
+  number          String?
+  type            String // outward_returnable | outward_non_returnable | inward | demo_out | repair_out | transfer
+  partyName       String
+  customerId      String?
+  vendorId        String?
+  contactPerson   String?
+  contactPhone    String?
+  purpose         String?        @db.Text
+  fromWarehouseId String?
+  toWarehouseId   String?
+  expectedReturn  DateTime?      @db.Date
+  vehicleId       String?
+  carrier         String?
+  status          String         @default("draft") // draft | pending | approved | out | partially_returned | returned | closed | converted
+  checkedOutAt    DateTime?
+  checkedInAt     DateTime?
+  custom          Json?
+  createdById     String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  deletedAt       DateTime?
+  lines           GatepassLine[]
+
+  @@index([companyId, status])
+}
+
+model GatepassLine {
+  id          String   @id @default(cuid())
+  gatepassId  String
+  gatepass    Gatepass @relation(fields: [gatepassId], references: [id], onDelete: Cascade)
+  productId   String?
+  serial      String?
+  description String?
+  qty         Decimal  @db.Decimal(18, 3)
+  returnedQty Decimal  @default(0) @db.Decimal(18, 3)
+  soldQty     Decimal  @default(0) @db.Decimal(18, 3)
+  condition   String? // ok | damaged | missing_accessories
+
+  @@index([gatepassId])
+  @@index([serial])
+}
+
+model GateCheck {
+  id           String   @id @default(cuid())
+  companyId    String
+  gatepassId   String
+  direction    String // out | in
+  guardId      String
+  photoId      String?
+  notes        String?
+  at           DateTime @default(now())
+
+  @@index([gatepassId])
+}

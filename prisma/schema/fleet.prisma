@@ -1,0 +1,89 @@
+model Vehicle {
+  id               String    @id @default(cuid())
+  companyId        String
+  branchId         String?
+  plate            String
+  vin              String?
+  engineNo         String?
+  make             String?
+  model            String?
+  year             Int?
+  type             String?
+  color            String?
+  fuelType         String?
+  ownership        String? // owned | leased | rented
+  driverId         String? // Employee
+  odometer         Int       @default(0)
+  serviceEveryKm   Int?
+  serviceEveryDays Int?
+  lastServiceKm    Int?
+  lastServiceAt    DateTime?
+  status           String    @default("active") // active | in_maintenance | inactive | sold
+  custom           Json?
+  createdById      String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  @@unique([companyId, plate])
+}
+
+model Trip {
+  id          String    @id @default(cuid())
+  companyId   String
+  vehicleId   String
+  driverId    String?
+  startAt     DateTime
+  endAt       DateTime?
+  startOdo    Int
+  endOdo      Int?
+  route       String?
+  purpose     String?
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([vehicleId])
+}
+
+model FuelLog {
+  id          String    @id @default(cuid())
+  companyId   String
+  vehicleId   String
+  date        DateTime  @db.Date
+  liters      Decimal   @db.Decimal(10, 2)
+  cost        Decimal   @db.Decimal(18, 2)
+  odometer    Int
+  station     String?
+  paidById    String? // Employee who paid out of pocket -> draft expense claim
+  claimId     String?
+  receiptId   String?
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([vehicleId, date])
+}
+
+/// tyre | battery | accident | fine | insurance | tax | other
+model VehicleEvent {
+  id          String    @id @default(cuid())
+  companyId   String
+  vehicleId   String
+  type        String
+  date        DateTime  @db.Date
+  amount      Decimal   @default(0) @db.Decimal(18, 2)
+  odometer    Int?
+  details     String?   @db.Text
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([vehicleId])
+}

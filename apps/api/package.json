@@ -1,0 +1,42 @@
+{
+  "name": "api",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput & node --watch-path=dist dist/main.js",
+    "typecheck": "tsc -p . --noEmit",
+    "test": "node --import tsx --test 'src/**/*.spec.ts'"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1140.0",
+    "@aws-sdk/s3-request-presigner": "^3.1140.0",
+    "@erp/shared": "workspace:*",
+    "@nestjs/common": "^11.1.0",
+    "@nestjs/core": "^11.1.0",
+    "@nestjs/jwt": "^11.0.0",
+    "@nestjs/platform-express": "^11.1.0",
+    "@nestjs/swagger": "^11.2.0",
+    "@nestjs/throttler": "^6.4.0",
+    "@prisma/client": "^6.16.0",
+    "bwip-js": "^4.11.4",
+    "cookie-parser": "^1.4.7",
+    "exceljs": "^4.4.0",
+    "helmet": "^8.1.0",
+    "nodemailer": "^10.0.10",
+    "playwright-core": "^1.63.0",
+    "pptxgenjs": "^4.0.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.9",
+    "@types/express": "^5.0.0",
+    "@types/multer": "^2.2.0",
+    "@types/node": "^22.0.0",
+    "@types/nodemailer": "^8.0.2",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

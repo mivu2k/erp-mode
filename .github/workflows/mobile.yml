@@ -1,0 +1,20 @@
+name: Mobile build
+on: workflow_dispatch
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 21 }
+      - run: pnpm install --frozen-lockfile
+      - working-directory: apps/mobile
+        run: |
+          npx cap add android || true
+          npx cap sync android
+          cd android && ./gradlew bundleRelease assembleRelease
+      - uses: actions/upload-artifact@v4
+        with: { name: android, path: "apps/mobile/android/app/build/outputs/**/*.a*" }

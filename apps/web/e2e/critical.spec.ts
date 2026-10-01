@@ -1,0 +1,375 @@
+import { expect, test } from '@playwright/test';
+
+const run = Date.now().toString(36);
+
+test.beforeEach(async ({ page }) => {
+  await page.goto('/login');
+  await page.getByLabel('Email or username').fill('admin@erp.local');
+  await page.getByLabel('Password').fill('Admin@12345');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: /Welcome/ })).toBeVisible();
+});
+
+test('create employee via generic form, find it in list, grid and global search', async ({ page }) => {
+  await page.goto('/r/hrm.employee/new');
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(`Sara ${run}`);
+  await page.getByLabel('Phone').fill('03001234567');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('heading', { name: `Sara ${run}` })).toBeVisible();
+
+  await page.goto('/r/hrm.employee');
+  await page.getByLabel('Search').fill(`Sara ${run}`);
+  await expect(page.getByRole('cell', { name: `Sara ${run}` })).toBeVisible();
+  await page.getByRole('button', { name: 'grid' }).click();
+  await expect(page.getByText(`Sara ${run}`)).toBeVisible();
+  await page.getByRole('button', { name: 'table' }).click();
+
+  await page.keyboard.press('Control+k');
+  await page.getByPlaceholder(/Name, number, serial/).fill(`Sara ${run}`);
+  await page.getByRole('button', { name: new RegExp(`Sara ${run}.*Employees`) }).click();
+  await expect(page).toHaveURL(/\/r\/hrm\.employee\/\w+/);
+  await page.getByRole('tab', { name: 'Activity' }).click();
+  await expect(page.getByText(/create/)).toBeVisible();
+});
+
+test('expense advance: submit → approve from inbox', async ({ page }) => {
+  await page.goto('/r/finance.advance/new');
+  await page.getByRole('combobox', { name: 'Employee' }).click();
+  await page.getByRole('listbox').getByRole('option').first().click();
+  await page.getByRole('spinbutton', { name: 'Amount', exact: true }).fill('75000');
+  await page.getByLabel('Purpose').fill(`Trip ${run}`);
+  await page.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('button', { name: 'Submit for approval' })).toBeVisible();
+  await page.getByRole('button', { name: 'Submit for approval' }).click();
+  await expect(page.getByText('pending', { exact: true }).first()).toBeVisible();
+
+  await page.goto('/approvals');
+  const card = page.locator('article', { hasText: `Trip ${run}` }).first();
+  await card.getByRole('button', { name: 'Approve' }).click(); // 2-step workflow (≥ 50,000): one admin approval finishes it
+  await page.getByRole('tab', { name: 'Decided by me' }).click();
+  await expect(page.getByText(`Trip ${run}`).first()).toBeVisible();
+});
+
+test('dark mode, permission matrix and report builder render', async ({ page }) => {
+  await expect(page.locator('html')).toHaveClass(/dark/); // dark by default (company branding)
+  await page.getByRole('button', { name: 'Toggle dark mode' }).click();
+  await expect(page.locator('html')).not.toHaveClass(/dark/);
+  await page.getByRole('button', { name: 'Toggle dark mode' }).click();
+  await expect(page.locator('html')).toHaveClass(/dark/);
+  await page.goto('/admin/roles');
+  await page.getByRole('option', { name: 'Technician' }).click();
+  await page.getByLabel('Filter screens').fill('employee');
+  const create = page.getByRole('button', { name: 'Employees: Create' });
+  await create.click();
+  await expect(page.getByText('Unsaved changes to Technician')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Employees: View' })).toHaveAttribute('aria-pressed', 'true');
+  await page.screenshot({ path: 'test-results/roles.png', fullPage: true });
+  await page.getByRole('button', { name: 'Discard' }).click();
+  await expect(page.getByText('Unsaved changes')).toBeHidden();
+  await page.goto('/reports');
+  await page.getByRole('tab', { name: 'Report builder' }).click();
+  await page.getByRole('button', { name: 'Run' }).click();
+  await expect(page.getByText(/rows/)).toBeVisible();
+  await page.screenshot({ path: 'test-results/reports-dark.png', fullPage: true });
+});
+
+test('Urdu switches the shell to RTL and back', async ({ page }) => {
+  await page.getByRole('button', { name: 'Language' }).click();
+  try {
+    await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+    await expect(page.getByRole('link', { name: 'منظوریاں' }).first()).toBeVisible();
+  } finally {
+    // Shared admin account: always leave it in English, even if the assertions above fail.
+    await page.getByRole('button', { name: 'زبان' }).click();
+    await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+  }
+});
+
+test('calendar view and dashboard builder', async ({ page }) => {
+  await page.goto('/r/hrm.task');
+  await page.getByRole('button', { name: 'calendar' }).click();
+  await expect(page.getByRole('button', { name: 'Today' })).toBeVisible();
+
+  await page.goto('/dashboards');
+  page.once('dialog', (d) => d.accept(`Ops ${run}`));
+  await page.getByRole('button', { name: 'New' }).click();
+  await page.getByLabel('Report').selectOption({ label: 'Jobs by status' });
+  await page.getByRole('button', { name: 'Add widget' }).click();
+  await expect(page.getByRole('heading', { name: 'Jobs by status' })).toBeVisible();
+  await expect(page.getByRole('figure', { name: 'Jobs by status' })).toBeVisible();
+  await page.screenshot({ path: 'test-results/dashboard.png', fullPage: true });
+});
+
+test('automation: product fills PO price; receive dialog pre-fills open lines', async ({ page }) => {
+  await page.goto('/r/purchase.order/new');
+  await expect(page.getByRole('textbox', { name: 'Date', exact: true }).or(page.getByLabel('Date'))).toHaveValue(new Date().toISOString().slice(0, 10));
+  await page.getByRole('combobox', { name: 'Vendor' }).click();
+  await page.getByRole('listbox').getByRole('option').first().click();
+  await page.getByRole('button', { name: '+ Add line' }).click();
+  await page.getByRole('combobox', { name: /Product/ }).click();
+  await page.getByRole('combobox', { name: /Product/ }).fill('Screen');
+  await page.getByRole('listbox').getByRole('option').first().click();
+  const price = page.locator('tbody input#price');
+  await expect(price).not.toHaveValue('');
+  await page.locator('tbody input#qty').fill('2');
+  await expect(page.getByRole('cell', { name: /\d/ }).last()).toBeVisible();
+  await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByRole('button', { name: 'Submit for approval' }).click();
+  await expect(page.getByText('approved', { exact: true }).first()).toBeVisible();
+
+  await page.getByRole('button', { name: 'Receive goods (GRN)' }).click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog.locator('tbody input#qty')).toHaveValue('2');
+  await expect(dialog.locator('tbody input#productId')).toHaveValue(/Screen/);
+  await dialog.getByRole('combobox', { name: 'Warehouse' }).click();
+  await dialog.getByRole('listbox').getByRole('option', { name: /Main Store/ }).click();
+  await page.screenshot({ path: 'test-results/receive-dialog.png' });
+  await dialog.getByRole('button', { name: 'Receive goods (GRN)' }).click();
+  await expect(page.getByText('received', { exact: true }).first()).toBeVisible();
+});
+
+test('attachments: upload with progress, thumbnail, preview', async ({ page }) => {
+  await page.goto('/r/hrm.employee/new');
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(`Pic ${run}`);
+  await page.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('heading', { name: `Pic ${run}` })).toBeVisible();
+  await page.getByRole('tab', { name: 'Attachments' }).click();
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  await page.getByLabel('Choose files').setInputFiles([{ name: 'badge.png', mimeType: 'image/png', buffer: png }, { name: 'evil.png', mimeType: 'image/png', buffer: Buffer.from('MZ not an image') }]);
+  await expect(page.getByRole('button', { name: 'Preview badge.png' })).toBeVisible();
+  await expect(page.getByText(/evil\.png: File type not allowed/)).toBeVisible();
+  await page.getByRole('button', { name: 'Preview badge.png' }).click();
+  await expect(page.getByRole('dialog').getByRole('img', { name: 'badge.png' })).toBeVisible();
+  await page.screenshot({ path: 'test-results/attachments.png' });
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+
+  // Photo field on the Details tab uses the same upload.
+  await page.getByRole('tab', { name: 'Details' }).click();
+  await page.getByLabel('Photo').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: png });
+  await expect(page.getByRole('img', { name: 'Photo' })).toBeVisible();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Unsaved changes')).toBeHidden();
+});
+
+test('logo upload shows in sidebar; product image gallery', async ({ page, request }) => {
+  // Remember the company's real branding and put it back exactly, whatever happens in this test.
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const company = (await (await request.get('/api/r/core.company?pageSize=1', { headers: auth })).json()).rows[0];
+  try {
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+  await page.goto('/admin/branding');
+  await page.getByLabel('Upload Logo (dark background)').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: png });
+  await expect(page.getByRole('img', { name: 'Logo (dark background)' })).toBeVisible();
+  await page.getByRole('button', { name: 'Save & apply' }).click();
+  await expect(page.locator('aside img').first()).toHaveAttribute('src', /^data:image\/png;base64,/);
+
+  await page.goto('/r/inventory.product/new');
+  await page.getByRole('textbox', { name: 'Sku', exact: true }).fill(`GAL-${run}`);
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(`Gallery ${run}`);
+  await page.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('heading', { name: `Gallery ${run}` })).toBeVisible();
+  await page.getByLabel('Upload Images').setInputFiles([{ name: '1.png', mimeType: 'image/png', buffer: png }, { name: '2.png', mimeType: 'image/png', buffer: png }]);
+  await expect(page.getByRole('img', { name: 'Images 2' })).toBeVisible();
+  await expect(page.getByText('Main', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Unsaved changes')).toBeHidden();
+
+  } finally {
+    const res = await request.patch(`/api/r/core.company/${company.id}`, { headers: auth, data: { branding: company.branding } });
+    expect(res.ok(), await res.text()).toBeTruthy();
+  }
+});
+
+test('intake: inline validation, known serial fills in, duplicate unit, draft survives reload', async ({ page }) => {
+  await page.goto('/repair/intake');
+  await page.getByRole('button', { name: 'Clear form' }).click();
+  await page.getByRole('button', { name: 'Receive 1 unit' }).click();
+  await expect(page.getByText('Describe the reported fault')).toBeVisible();
+  await expect(page.getByText('Pick the customer or unit')).toBeVisible();
+  await page.getByLabel('Serial number').fill(`SN2-${run}-none`);
+  await page.getByLabel('Serial number').press('Enter');
+  await expect(page.getByText('First time we see this serial.')).toBeVisible();
+  await page.getByLabel('Model').fill(`XR-${run}`);
+  await page.getByLabel('Reported fault').fill('No transmit');
+  await page.getByRole('button', { name: 'Duplicate' }).click();
+  await expect(page.getByRole('button', { name: 'Receive 2 units' })).toBeVisible();
+  await expect(page.getByLabel('Model').nth(1)).toHaveValue(`XR-${run}`);
+  await page.screenshot({ path: 'test-results/intake.png', fullPage: true });
+  await page.reload();
+  await expect(page.getByRole('button', { name: 'Receive 2 units' })).toBeVisible();
+  await page.getByRole('button', { name: 'Clear form' }).click();
+});
+
+test('assign roles to a user from the Roles tab', async ({ page }) => {
+  await page.goto('/r/core.user');
+  await page.getByLabel('Search').fill('Maker');
+  await page.getByRole('cell', { name: /^Maker / }).first().click();
+  await page.getByRole('tab', { name: 'Roles' }).click();
+  const tech = page.getByRole('switch', { name: 'Technician' });
+  const was = await tech.isChecked();
+  await tech.setChecked(!was, { force: true });
+  await page.getByRole('button', { name: 'Save roles' }).click();
+  await expect(page.getByRole('button', { name: 'Saved' })).toBeVisible();
+  await page.reload();
+  await page.getByRole('tab', { name: 'Roles' }).click();
+  await expect(page.getByRole('switch', { name: 'Technician' })).toBeChecked({ checked: !was });
+});
+
+test('a posted record reads as a document; super admin can switch to the form', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const q = encodeURIComponent(JSON.stringify({ status: 'paid' }));
+  const paid = (await (await request.get(`/api/r/finance.claim?pageSize=1&filters=${q}`, { headers: { Authorization: `Bearer ${accessToken}` } })).json()).rows[0];
+  await page.goto(`/r/finance.claim/${paid.id}`);
+  await expect(page.getByText(/Read-only — (Paid|Settled)/)).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Amount' })).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'Total' })).toBeVisible();
+  await page.screenshot({ path: 'test-results/posted.png', fullPage: true });
+  await page.getByRole('button', { name: 'Edit anyway' }).click();
+  await expect(page.getByText(/Read-only —/)).toBeHidden();
+  await page.getByRole('button', { name: 'Done editing' }).click();
+});
+
+test('invoice lines read as a table, not JSON', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const inv = (await (await request.get('/api/r/repair.invoice?pageSize=1&sort=createdAt:desc', { headers: { Authorization: `Bearer ${accessToken}` } })).json()).rows[0];
+  await page.goto(`/r/repair.invoice/${inv.id}`);
+  await expect(page.getByText(/Read-only —/)).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Price' })).toBeVisible();
+  await expect(page.getByText('"qty"')).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/invoice.png', fullPage: true });
+  await page.getByRole('button', { name: 'Edit anyway' }).click();
+  await expect(page.getByLabel('Journal')).toHaveCount(0);
+});
+
+test('P&R: forecast, aging, by party, and a part payment straight from the timeline', async ({ page, request }) => {
+  // Its own receivable, due yesterday (the small Overdue group), so repeated runs never whittle a shared item down to cents.
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const acc = (await (await request.get(`/api/r/finance.account?pageSize=1&filters=${encodeURIComponent(JSON.stringify({ code: '4100' }))}`, { headers: auth })).json()).rows[0];
+  await request.post('/api/r/payables.due', { headers: auth, data: { direction: 'receivable', partyName: `PR ${run}`, description: `PR test ${run}`, amount: '1000', dueDate: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10), accountId: acc.id } });
+  await page.goto('/payables');
+  await expect(page.getByText('Cash-flow forecast — next 8 weeks')).toBeVisible();
+  await expect(page.getByText('Cash & bank now')).toBeVisible();
+  await page.getByRole('tab', { name: 'Aging' }).click();
+  await expect(page.getByRole('columnheader', { name: '90+ days' })).toBeVisible();
+  await page.getByRole('tab', { name: 'By party' }).click();
+  await expect(page.getByText('Who owes us')).toBeVisible();
+  await page.getByRole('tab', { name: 'Timeline' }).click();
+  await page.screenshot({ path: 'test-results/pr.png' });
+  // Overdue shows 8 items until expanded; earlier runs may have left more.
+  const more = page.getByRole('button', { name: /^Show all/ }).first();
+  if (await more.isVisible()) await more.click();
+  const item = page.locator('li').filter({ hasText: `PR ${run}` }).first();
+  await item.getByRole('button', { name: 'Receive' }).click();
+  await page.getByRole('button', { name: 'Half' }).click();
+  await expect(page.getByText(/Part payment — .* stays open/)).toBeVisible();
+  await page.getByRole('button', { name: /Record (receipt|payment)/ }).click();
+  await expect(page.getByRole('dialog')).toBeHidden();
+});
+
+test('utilities tracker renders with the month strip', async ({ page }) => {
+  await page.goto('/utilities');
+  await expect(page.getByRole('heading', { name: 'Utilities' })).toBeVisible();
+  await expect(page.getByText('Bills not received')).toBeVisible();
+  await page.screenshot({ path: 'test-results/utilities.png' });
+});
+
+test('kiosk pairing by link: admin gets link + QR, opening it pairs the device', async ({ page, browser, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const st = await (await request.post('/api/r/hrm.station', { headers: { Authorization: `Bearer ${accessToken}` }, data: { name: `Gate ${run}` } })).json();
+  await page.goto(`/r/hrm.station/${st.id}`);
+  await page.getByRole('button', { name: 'Pair a device (link / QR)' }).click();
+  const link = await page.getByLabel('Pairing link').inputValue();
+  expect(link).toMatch(/\/kiosk\?code=\d{6}$/);
+  await expect(page.locator('dialog[open] svg').first()).toBeVisible();
+  const kiosk = await (await browser.newContext()).newPage();
+  await kiosk.goto(link.replace(/^https?:\/\/[^/]+/, ''));
+  await expect(kiosk.getByText(`Gate ${run}`)).toBeVisible();
+  expect(kiosk.url()).not.toContain('code=');
+});
+
+test('salary structure: employee name as title, components as an editable table', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const s = (await (await request.get('/api/r/hrm.salary?pageSize=1&sort=createdAt:desc', { headers: auth })).json()).rows[0];
+  await page.goto(`/r/hrm.salary/${s.id}`);
+  await expect(page.getByRole('heading', { name: s._refs.employeeId })).toBeVisible();
+  await expect(page.getByRole('columnheader', { name: 'Component' })).toBeVisible();
+  await expect(page.getByText('"mode"')).toHaveCount(0);
+  await page.screenshot({ path: 'test-results/salary.png' });
+});
+
+test('sidebar splits a module into Employee and Management & admin', async ({ page }) => {
+  await page.getByRole('button', { name: 'HR' }).click();
+  const nav = page.locator('aside').first();
+  await expect(nav.getByText('Employee', { exact: true })).toBeVisible();
+  await expect(nav.getByText('Management & admin')).toBeVisible();
+  await page.screenshot({ path: 'test-results/sidebar.png' });
+});
+
+test('My HR page shows my own profile, leave, pay and requests', async ({ page }) => {
+  await page.getByRole('link', { name: 'My HR' }).click();
+  await expect(page.getByRole('heading', { name: /^My HR/ })).toBeVisible();
+  await expect(page.getByText('Paid leave remaining')).toBeVisible();
+  await expect(page.getByText('Payslips', { exact: true })).toBeVisible();
+  await page.screenshot({ path: 'test-results/me.png', fullPage: true });
+});
+
+test('guided expense claim: New goes to the claim form, live total, save draft', async ({ page }) => {
+  await page.goto('/r/finance.claim');
+  await page.getByRole('link', { name: 'New' }).click();
+  await expect(page).toHaveURL(/\/finance\/claims\/new/);
+  await expect(page.getByRole('radio', { name: /Reimburse me/ })).toHaveAttribute('aria-checked', 'true');
+  await page.getByLabel('Type').first().selectOption({ index: 1 });
+  await page.getByLabel('Amount').first().fill('1200');
+  await page.getByLabel('Description').first().fill(`Taxi ${run}`);
+  await page.getByRole('button', { name: '+ Add expense' }).click();
+  await page.getByLabel('Type').nth(1).selectOption({ index: 1 });
+  await page.getByLabel('Amount').nth(1).fill('300');
+  await expect(page.getByText('Total claimed')).toBeVisible();
+  await expect(page.locator('dd', { hasText: '1,500' }).first()).toBeVisible();
+  await page.screenshot({ path: 'test-results/claim-new.png', fullPage: true });
+  await page.getByRole('button', { name: 'Save draft' }).click();
+  await expect(page).toHaveURL(/\/r\/finance\.claim\/\w+/);
+  await expect(page.getByText('1,500').first()).toBeVisible();
+});
+
+test('record utility bill: grouped form with live total from the server', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const conn = (await (await request.get('/api/r/utilities.connection?pageSize=1&sort=createdAt:desc', { headers: { Authorization: `Bearer ${accessToken}` } })).json()).rows[0];
+  test.skip(!conn, 'no utility connection yet');
+  await page.goto(`/r/utilities.connection/${conn.id}`);
+  await page.getByRole('button', { name: 'Record bill' }).click();
+  await expect(page.getByText('Bill total')).toBeVisible();
+  await page.getByLabel('Usage charge').fill('1000');
+  await page.getByLabel('Tax').fill('170');
+  await expect(page.locator('dialog[open] dd', { hasText: /^1,[0-9]{3}/ }).last()).toBeVisible();
+  await page.screenshot({ path: 'test-results/bill-dialog.png' });
+});
+
+test('rich-text editor on catalog item: toolbar, bold, saved and shown formatted', async ({ page }) => {
+  await page.goto('/r/catalog.item/new');
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(`Rich ${run}`);
+  const ed = page.locator('#summary');
+  await expect(page.getByRole('toolbar', { name: 'Formatting' }).first()).toBeVisible();
+  await ed.click();
+  await page.getByRole('button', { name: 'Bold' }).first().click();
+  await page.keyboard.type('Rugged');
+  await page.getByRole('button', { name: 'Bold' }).first().click();
+  await page.keyboard.type(' and light');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await expect(page.getByRole('heading', { name: `Rich ${run}` })).toBeVisible();
+  await expect(page.locator('#summary b, #summary strong').first()).toHaveText('Rugged');
+  await page.screenshot({ path: 'test-results/richtext.png' });
+});
+
+test('standard reports: library by module, period presets, table with totals, export', async ({ page }) => {
+  await page.goto('/reports');
+  await expect(page.getByRole('navigation', { name: 'Standard reports' })).toBeVisible();
+  await page.getByRole('button', { name: 'Invoiced by customer' }).click();
+  await page.getByRole('button', { name: 'This year' }).click();
+  await expect(page.getByRole('columnheader', { name: 'Balance' })).toBeVisible();
+  await expect(page.locator('tfoot').getByText('Total')).toBeVisible();
+  await page.screenshot({ path: 'test-results/standard-reports.png', fullPage: true });
+});

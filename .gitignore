@@ -1,0 +1,13 @@
+node_modules
+dist
+.next
+.env
+.turbo
+coverage
+test-results
+playwright-report
+*.tsbuildinfo
+next-env.d.ts
+apps/mobile/android
+apps/mobile/ios
+uploads

@@ -1,0 +1,54 @@
+/* Design tokens. Every module styles through these; Admin › Branding overrides them at runtime. */
+:root {
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --border: #e2e8f0;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #0f172a;
+  --danger: #dc2626;
+  --radius: 0.625rem;
+  --field: #f8fafc;
+  --shadow: 0 1px 2px rgb(15 23 42 / 0.04), 0 1px 3px rgb(15 23 42 / 0.06);
+  /* Sidebar stays dark in both modes */
+  --sidebar: #0b1220;
+  --sidebar-foreground: #cbd5e1;
+  --sidebar-muted: #64748b;
+  --sidebar-hover: #16213a;
+  --sidebar-active: #1d2b4d;
+  --font: ui-sans-serif, system-ui, sans-serif;
+  --density: 1; /* 0.8 compact, 1 comfortable */
+
+  --tone-gray: #64748b;   --tone-gray-bg: #f1f5f9;
+  --tone-blue: #1d4ed8;   --tone-blue-bg: #dbeafe;
+  --tone-amber: #b45309;  --tone-amber-bg: #fef3c7;
+  --tone-green: #15803d;  --tone-green-bg: #dcfce7;
+  --tone-red: #b91c1c;    --tone-red-bg: #fee2e2;
+  --tone-violet: #6d28d9; --tone-violet-bg: #ede9fe;
+}
+.dark {
+  color-scheme: dark;
+  --background: #070b14;
+  --foreground: #e5e9f0;
+  --card: #0f1523;
+  --muted: #172033;
+  --muted-foreground: #8b98ad;
+  --border: #1f2940;
+  --field: #0b111d;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4);
+  --sidebar: #050810;
+  --sidebar-hover: #111a2c;
+  --sidebar-active: #17233d;
+  --tone-gray-bg: #1e293b;  --tone-gray: #cbd5e1;
+  --tone-blue-bg: #172554;  --tone-blue: #93c5fd;
+  --tone-amber-bg: #422006; --tone-amber: #fcd34d;
+  --tone-green-bg: #052e16; --tone-green: #86efac;
+  --tone-red-bg: #450a0a;   --tone-red: #fca5a5;
+  --tone-violet-bg: #2e1065; --tone-violet: #c4b5fd;
+}
+@media print {
+  .no-print { display: none !important; }
+}

@@ -1,0 +1,322 @@
+model Employee {
+  id            String    @id @default(cuid())
+  companyId     String
+  branchId      String?
+  departmentId  String?
+  designationId String?
+  managerId     String?
+  userId        String?   @unique
+  shiftId       String?
+  code          String
+  name          String
+  fatherName    String?
+  cnic          String?
+  dob           DateTime? @db.Date
+  gender        String?
+  photo         String? // attachment id
+  phone         String?
+  email         String?
+  address       String?   @db.Text
+  /// { name, relation, phone }
+  emergency     Json?
+  education     Json?
+  experience    Json?
+  /// { bankName, accountTitle, iban }
+  bank          Json?
+  joinDate      DateTime? @db.Date
+  type          String    @default("permanent") // permanent | contract | intern
+  probationEnd  DateTime? @db.Date
+  status        String    @default("active") // active | on_leave | resigned | terminated
+  exitDate      DateTime? @db.Date
+  isDirector    Boolean   @default(false)
+  nfcUid        String?
+  qrToken       String?
+  licenseNo     String?
+  licenseExpiry DateTime? @db.Date
+  accountId     String? // finance sub-ledger (auto)
+  custom        Json?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  @@unique([companyId, code])
+  @@unique([companyId, nfcUid])
+  @@unique([companyId, qrToken])
+  @@index([departmentId])
+  @@index([branchId])
+}
+
+/// Employee documents with expiry (CNIC, contract, license...). Also used for vehicles via entityType.
+model DocumentRecord {
+  id          String    @id @default(cuid())
+  companyId   String
+  entityType  String // hrm.employee | fleet.vehicle
+  entityId    String
+  type        String
+  number      String?
+  issueDate   DateTime? @db.Date
+  expiryDate  DateTime? @db.Date
+  attachmentId String?
+  custom      Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([entityType, entityId])
+  @@index([expiryDate])
+}
+
+/// Lifecycle events: onboarding, transfer, promotion, increment, resignation, termination.
+model EmployeeEvent {
+  id          String    @id @default(cuid())
+  companyId   String
+  employeeId  String
+  type        String
+  date        DateTime  @db.Date
+  details     Json?
+  notes       String?   @db.Text
+  status      String    @default("draft")
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([employeeId])
+}
+
+model Shift {
+  id           String    @id @default(cuid())
+  companyId    String
+  name         String
+  start        String // HH:mm
+  end          String // HH:mm
+  graceMin     Int       @default(10)
+  halfDayMin   Int       @default(240) // worked minutes below this = half day
+  absentMin    Int       @default(120) // below this = absent
+  otAfterMin   Int       @default(30) // overtime counted only beyond this
+  /// weekday numbers 0=Sun..6=Sat
+  weekend      Json      @default("[0]")
+  custom       Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+}
+
+model KioskStation {
+  id              String    @id @default(cuid())
+  companyId       String
+  branchId        String?
+  name            String
+  location        String?
+  /// ["nfc","qr","rotating_qr"]
+  methods         Json      @default("[\"nfc\",\"qr\"]")
+  lat             Float?
+  lng             Float?
+  radiusM         Int       @default(150)
+  /// ["1.2.3.4"] empty = any
+  ipWhitelist     Json?
+  pairingHash     String?   @db.Char(64)
+  pairingExpires  DateTime?
+  deviceTokenHash String?   @db.Char(64)
+  secret          String?   @db.Char(64) // rotating QR HMAC key
+  lastSeenAt      DateTime?
+  isActive        Boolean   @default(true)
+  custom          Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+}
+
+model AttendancePunch {
+  id             String   @id @default(cuid())
+  companyId      String
+  employeeId     String
+  stationId      String?
+  method         String // nfc | qr | rotating_qr | mobile | manual | import
+  at             DateTime
+  lat            Float?
+  lng            Float?
+  idempotencyKey String?  @unique
+  createdAt      DateTime @default(now())
+
+  @@index([employeeId, at])
+}
+
+model AttendanceDay {
+  id          String    @id @default(cuid())
+  companyId   String
+  employeeId  String
+  branchId    String?
+  departmentId String?
+  date        DateTime  @db.Date
+  status      String // present | absent | late | half_day | leave | holiday | weekend
+  inAt        DateTime?
+  outAt       DateTime?
+  workedMin   Int       @default(0)
+  lateMin     Int       @default(0)
+  earlyMin    Int       @default(0)
+  overtimeMin Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([employeeId, date])
+  @@index([companyId, date])
+}
+
+/// Manual entry / correction; applied as punches when approved.
+model AttendanceCorrection {
+  id          String    @id @default(cuid())
+  companyId   String
+  employeeId  String
+  date        DateTime  @db.Date
+  inAt        DateTime?
+  outAt       DateTime?
+  reason      String    @db.Text
+  status      String    @default("draft")
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([employeeId])
+}
+
+model LeaveType {
+  id           String    @id @default(cuid())
+  companyId    String
+  name         String
+  daysPerYear  Decimal   @db.Decimal(6, 2)
+  paid         Boolean   @default(true)
+  carryForward Decimal   @default(0) @db.Decimal(6, 2) // max days carried
+  encashable   Boolean   @default(false)
+  custom       Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+}
+
+model LeaveRequest {
+  id          String    @id @default(cuid())
+  companyId   String
+  employeeId  String
+  leaveTypeId String
+  from        DateTime  @db.Date
+  to          DateTime  @db.Date
+  days        Decimal   @db.Decimal(6, 2)
+  reason      String?   @db.Text
+  status      String    @default("draft")
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([employeeId, from])
+}
+
+model Task {
+  id          String    @id @default(cuid())
+  companyId   String
+  number      String?
+  title       String
+  description String?   @db.Text
+  assigneeId  String? // Employee
+  project     String?
+  priority    String    @default("medium") // low | medium | high | urgent
+  status      String    @default("todo") // todo | in_progress | review | done | blocked
+  dueDate     DateTime?
+  doneAt      DateTime?
+  /// [{ text, done }]
+  checklist   Json?
+  recurrence  String? // daily | weekly | monthly
+  lastRecurredAt DateTime?
+  parentTaskId String?
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([assigneeId, status])
+}
+
+model DailyReport {
+  id           String    @id @default(cuid())
+  companyId    String
+  employeeId   String
+  date         DateTime  @db.Date
+  summary      String    @db.Text
+  blockers     String?   @db.Text
+  reviewedById String?
+  reviewNote   String?
+  custom       Json?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@unique([employeeId, date])
+}
+
+// ─── Payroll ─────────────────────────────────────────────────
+
+/// components: [{ name, kind: allowance|deduction, mode: fixed|percent, value }] (percent of basic)
+model SalaryStructure {
+  id         String    @id @default(cuid())
+  companyId  String
+  employeeId String    @unique
+  basic      Decimal   @db.Decimal(18, 2)
+  components Json      @default("[]")
+  taxPercent Decimal   @default(0) @db.Decimal(5, 2)
+  custom     Json?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+}
+
+model PayrollRun {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String?
+  period      String // YYYY-MM
+  status      String    @default("draft") // draft | pending | approved | posted | paid
+  gross       Decimal   @default(0) @db.Decimal(18, 2)
+  net         Decimal   @default(0) @db.Decimal(18, 2)
+  journalId   String?
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  payslips    Payslip[]
+
+  @@unique([companyId, branchId, period])
+}
+
+model Payslip {
+  id           String     @id @default(cuid())
+  companyId    String
+  runId        String
+  run          PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employeeId   String
+  period       String
+  /// [{ name, kind: earning|deduction, amount }]
+  lines        Json
+  gross        Decimal    @db.Decimal(18, 2)
+  deductions   Decimal    @db.Decimal(18, 2)
+  advanceDeduction Decimal @default(0) @db.Decimal(18, 2)
+  net          Decimal    @db.Decimal(18, 2)
+  paid         Decimal    @default(0) @db.Decimal(18, 2)
+  status       String     @default("draft") // draft | posted | partially_paid | paid
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+
+  @@unique([runId, employeeId])
+  @@index([employeeId])
+}

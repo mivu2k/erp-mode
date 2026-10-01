@@ -1,0 +1,277 @@
+model Customer {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  code        String?
+  kind        String    @default("individual") // individual | company
+  name        String
+  contactName String?
+  phone       String?
+  email       String?
+  address     String?   @db.Text
+  taxId       String?
+  creditLimit Decimal   @default(0) @db.Decimal(18, 2)
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([companyId, phone])
+}
+
+model Vendor {
+  id           String    @id @default(cuid())
+  companyId    String
+  code         String?
+  name         String
+  contactName  String?
+  phone        String?
+  email        String?
+  address      String?   @db.Text
+  taxId        String?
+  paymentTerms Int       @default(30) // days
+  custom       Json?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+}
+
+model Product {
+  id           String    @id @default(cuid())
+  companyId    String
+  sku          String
+  barcode      String?
+  name         String
+  categoryId   String? // MasterData product_category
+  brand        String?
+  model        String?
+  compatible   String?   @db.Text
+  unitId       String? // MasterData unit
+  taxId        String? // MasterData tax
+  cost         Decimal   @default(0) @db.Decimal(18, 2)
+  price        Decimal   @default(0) @db.Decimal(18, 2)
+  reorderLevel Decimal   @default(0) @db.Decimal(18, 3)
+  serialized   Boolean   @default(false)
+  /// Sale warranty for serialised units; 0 = company default (Settings › serials)
+  warrantyMonths Int     @default(0)
+  isService    Boolean   @default(false)
+  images       Json?
+  isActive     Boolean   @default(true)
+  custom       Json?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@unique([companyId, sku])
+  @@index([barcode])
+}
+
+model Warehouse {
+  id        String    @id @default(cuid())
+  companyId String
+  branchId  String?
+  code      String
+  name      String
+  kind      String    @default("normal") // normal | demo | repair | vendor | scrap | transit
+  custom    Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([companyId, code])
+}
+
+model StockLevel {
+  id          String   @id @default(cuid())
+  companyId   String
+  productId   String
+  warehouseId String
+  qty         Decimal  @default(0) @db.Decimal(18, 3)
+  avgCost     Decimal  @default(0) @db.Decimal(18, 4)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([productId, warehouseId])
+  @@index([warehouseId])
+}
+
+model StockMovement {
+  id          String   @id @default(cuid())
+  companyId   String
+  productId   String
+  warehouseId String
+  qty         Decimal  @db.Decimal(18, 3) // + in, - out
+  unitCost    Decimal  @db.Decimal(18, 4)
+  type        String // purchase | job_issue | job_return | transfer | adjustment | damaged | demo_out | demo_in | sale | vendor_return | gatepass
+  refType     String?
+  refId       String?
+  serial      String?
+  note        String?
+  userId      String?
+  at          DateTime @default(now())
+
+  @@index([productId, at])
+  @@index([refType, refId])
+  @@index([serial])
+}
+
+model SerialItem {
+  id            String    @id @default(cuid())
+  companyId     String
+  /// Optional: a serial can be tracked without an inventory product
+  productId     String?
+  serial        String
+  /// Free-text identity for items not in inventory
+  itemName      String?
+  brand         String?
+  model         String?
+  /// Free-text whereabouts when not in a warehouse (site, vehicle, rack…) and who holds it
+  location      String?
+  holder        String?
+  warehouseId   String?
+  status        String    @default("in_stock") // in_stock | issued | sold | demo | rma | scrapped | out
+  /// Where it came from (set on goods receipt)
+  vendorId      String?
+  receivedAt    DateTime?
+  /// Who has it (set on sale)
+  customerId    String?
+  soldAt        DateTime?
+  warrantyUntil DateTime? @db.Date
+  notes         String?   @db.Text
+  custom        Json?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@unique([companyId, serial])
+  @@index([productId])
+  @@index([customerId])
+  @@index([warrantyUntil])
+}
+
+/// Stock adjustments & transfers go through workflow before posting.
+model StockAdjustment {
+  id              String    @id @default(cuid())
+  companyId       String
+  branchId        String?
+  number          String?
+  kind            String    @default("adjustment") // adjustment | transfer | damaged | count
+  warehouseId     String
+  toWarehouseId   String?
+  /// [{ productId, qty, serial? }]  qty signed for adjustment
+  lines           Json
+  reason          String?
+  status          String    @default("draft") // draft | pending | approved | posted
+  custom          Json?
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+}
+
+// ─── Purchase ────────────────────────────────────────────────
+
+model PurchaseRequisition {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String?
+  /// [{ productId, qty, jobId?, note? }]
+  lines       Json
+  reason      String?
+  status      String    @default("draft") // draft | pending | approved | ordered | rejected
+  poId        String?
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+}
+
+model PurchaseOrder {
+  id          String              @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String?
+  vendorId    String
+  date        DateTime            @db.Date
+  expectedAt  DateTime?           @db.Date
+  subtotal    Decimal             @default(0) @db.Decimal(18, 2)
+  tax         Decimal             @default(0) @db.Decimal(18, 2)
+  total       Decimal             @default(0) @db.Decimal(18, 2)
+  notes       String?             @db.Text
+  status      String              @default("draft") // draft | pending | approved | partially_received | received | closed | cancelled
+  custom      Json?
+  createdById String?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  deletedAt   DateTime?
+  lines       PurchaseOrderLine[]
+}
+
+model PurchaseOrderLine {
+  id          String        @id @default(cuid())
+  poId        String
+  po          PurchaseOrder @relation(fields: [poId], references: [id], onDelete: Cascade)
+  productId   String
+  qty         Decimal       @db.Decimal(18, 3)
+  price       Decimal       @db.Decimal(18, 2)
+  taxRate     Decimal       @default(0) @db.Decimal(5, 2)
+  receivedQty Decimal       @default(0) @db.Decimal(18, 3)
+  returnedQty Decimal       @default(0) @db.Decimal(18, 3)
+  jobId       String?
+
+  @@index([poId])
+  @@index([jobId])
+}
+
+model GoodsReceipt {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String?
+  poId        String
+  warehouseId String
+  /// [{ poLineId, productId, qty, unitCost, serials[] }]
+  lines       Json
+  journalId   String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+}
+
+model VendorBill {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String?
+  vendorRef   String?
+  vendorId    String
+  poId        String?
+  date        DateTime  @db.Date
+  dueDate     DateTime? @db.Date
+  amount      Decimal   @db.Decimal(18, 2)
+  paid        Decimal   @default(0) @db.Decimal(18, 2)
+  status      String    @default("open") // open | partially_paid | paid
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+}
+
+/// Manual tracking log for a serial (registered, moved, handed over, status change).
+model SerialEvent {
+  id           String   @id @default(cuid())
+  companyId    String
+  serialItemId String
+  serial       String
+  at           DateTime @default(now())
+  title        String
+  detail       String?  @db.Text
+  userId       String?
+
+  @@index([companyId, serial])
+}

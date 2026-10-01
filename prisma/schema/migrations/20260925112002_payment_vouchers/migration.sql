@@ -1,0 +1,30 @@
+-- CreateTable
+CREATE TABLE `PaymentVoucher` (
+    `id` VARCHAR(191) NOT NULL,
+    `companyId` VARCHAR(191) NOT NULL,
+    `branchId` VARCHAR(191) NULL,
+    `departmentId` VARCHAR(191) NULL,
+    `number` VARCHAR(191) NULL,
+    `purpose` VARCHAR(191) NOT NULL,
+    `sourceType` VARCHAR(191) NOT NULL,
+    `sourceId` VARCHAR(191) NOT NULL,
+    `employeeId` VARCHAR(191) NOT NULL,
+    `amount` DECIMAL(18, 2) NOT NULL,
+    `breakdown` JSON NULL,
+    `accountId` VARCHAR(191) NOT NULL,
+    `methodId` VARCHAR(191) NULL,
+    `notes` TEXT NULL,
+    `status` VARCHAR(191) NOT NULL DEFAULT 'draft',
+    `paidAt` DATETIME(3) NULL,
+    `journalId` VARCHAR(191) NULL,
+    `custom` JSON NULL,
+    `createdById` VARCHAR(191) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+    `deletedAt` DATETIME(3) NULL,
+
+    INDEX `PaymentVoucher_companyId_status_idx`(`companyId`, `status`),
+    INDEX `PaymentVoucher_sourceType_sourceId_idx`(`sourceType`, `sourceId`),
+    INDEX `PaymentVoucher_employeeId_idx`(`employeeId`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

@@ -1,0 +1,243 @@
+model Account {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  parentId    String?
+  code        String
+  name        String
+  type        String // asset | liability | equity | income | expense
+  isCash      Boolean   @default(false)
+  isBank      Boolean   @default(false)
+  isGroup     Boolean   @default(false)
+  employeeId  String? // personal sub-ledger
+  custom      Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([companyId, code])
+  @@index([parentId])
+  @@index([employeeId])
+}
+
+model JournalEntry {
+  id          String        @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String
+  date        DateTime      @db.Date
+  memo        String?
+  amount      Decimal       @default(0) @db.Decimal(18, 2) // total debits, so lists can show the entry's size
+  sourceType  String? // resource key
+  sourceId    String?
+  createdById String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  deletedAt   DateTime?
+  lines       JournalLine[]
+
+  @@index([companyId, date])
+  @@index([sourceType, sourceId])
+}
+
+model JournalLine {
+  id         String       @id @default(cuid())
+  companyId  String
+  entryId    String
+  entry      JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  accountId  String
+  employeeId String?
+  partyType  String? // customer | vendor
+  partyId    String?
+  date       DateTime     @db.Date
+  debit      Decimal      @default(0) @db.Decimal(18, 2)
+  credit     Decimal      @default(0) @db.Decimal(18, 2)
+  memo       String?
+
+  @@index([accountId, date])
+  @@index([employeeId, date])
+  @@index([partyType, partyId])
+}
+
+/// Money moving between two accounts: cash in from bank/director, transfers.
+model CashTransaction {
+  id            String    @id @default(cuid())
+  companyId     String
+  branchId      String?
+  number        String?
+  date          DateTime  @db.Date
+  fromAccountId String
+  toAccountId   String
+  amount        Decimal   @db.Decimal(18, 2)
+  memo          String?
+  journalId     String?
+  custom        Json?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+}
+
+model Advance {
+  id                String    @id @default(cuid())
+  companyId         String
+  branchId          String?
+  departmentId      String?
+  number            String?
+  employeeId        String
+  kind              String    @default("expense") // expense | salary
+  amount            Decimal   @db.Decimal(18, 2)
+  purpose           String?   @db.Text
+  installments      Int       @default(1)
+  installmentAmount Decimal   @default(0) @db.Decimal(18, 2)
+  recovered         Decimal   @default(0) @db.Decimal(18, 2)
+  status            String    @default("draft") // draft | pending | approved | rejected | disbursed | settled
+  disbursedAt       DateTime?
+  custom            Json?
+  createdById       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  deletedAt         DateTime?
+
+  @@index([employeeId, status])
+}
+
+model ExpenseClaim {
+  id           String             @id @default(cuid())
+  companyId    String
+  branchId     String?
+  departmentId String?
+  number       String?
+  employeeId   String
+  mode         String             @default("direct") // direct | against_advance
+  advanceId    String?
+  date         DateTime           @db.Date
+  total        Decimal            @default(0) @db.Decimal(18, 2)
+  fromAdvance  Decimal            @default(0) @db.Decimal(18, 2)
+  reimbursed   Decimal            @default(0) @db.Decimal(18, 2)
+  refundDue    Decimal            @default(0) @db.Decimal(18, 2)
+  /// Set when an approver approves less than claimed (partial approval); null = full total
+  approvedTotal Decimal?          @db.Decimal(18, 2)
+  approvalNote String?            @db.Text
+  /// Expense posted to the employee's account (first reimbursement); later payments only settle the balance
+  booked       Boolean            @default(false)
+  notes        String?            @db.Text
+  status       String             @default("draft") // draft | pending | approved | rejected | paid | settled
+  custom       Json?
+  createdById  String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  deletedAt    DateTime?
+  lines        ExpenseClaimLine[]
+
+  @@index([employeeId, status])
+}
+
+model ExpenseClaimLine {
+  id           String       @id @default(cuid())
+  claimId      String
+  claim        ExpenseClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  date         DateTime     @db.Date
+  headId       String // MasterData expense_head
+  description  String?
+  amount       Decimal      @db.Decimal(18, 2)
+  tax          Decimal      @default(0) @db.Decimal(18, 2)
+  /// Approved gross (amount + tax) when cut by the approver; null = as claimed
+  approved     Decimal?     @db.Decimal(18, 2)
+  vendor       String?
+  attachmentId String?
+  vehicleId    String?
+  jobId        String?
+
+  @@index([claimId])
+  @@index([headId])
+}
+
+/// Customer receipts, vendor payments, salary payments, advance returns.
+model Payment {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String?
+  direction   String // in | out
+  partyType   String // customer | vendor | employee
+  partyId     String
+  refType     String? // resource key: repair.invoice, purchase.bill, hrm.payslip, finance.advance
+  refId       String?
+  date        DateTime  @db.Date
+  amount      Decimal   @db.Decimal(18, 2)
+  methodId    String? // MasterData payment_method
+  accountId   String // cash/bank account
+  reference   String?
+  idempotencyKey String? @unique
+  journalId   String?
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([partyType, partyId])
+  @@index([refType, refId])
+}
+
+/// Manual payable / receivable (rent, loans, deposits, misc). Posts to the ledger on create and on each payment.
+model Due {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String?
+  direction   String // payable | receivable
+  partyType   String    @default("other") // customer | vendor | employee | other
+  customerId  String?
+  vendorId    String?
+  employeeId  String?
+  partyName   String?
+  description String?
+  amount      Decimal   @db.Decimal(18, 2)
+  paid        Decimal   @default(0) @db.Decimal(18, 2)
+  dueDate     DateTime  @db.Date
+  /// Income/expense (or loan) account on the other side of the posting
+  accountId   String
+  status      String    @default("open") // open | partially_paid | settled | cancelled
+  journalId   String?
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([companyId, direction, status])
+  @@index([dueDate])
+}
+
+/// Money leaves (or settles) only through an approved voucher: advance/loan disbursement and claim reimbursement/settlement.
+model PaymentVoucher {
+  id           String    @id @default(cuid())
+  companyId    String
+  branchId     String?
+  departmentId String?
+  number       String?
+  purpose      String // advance_disbursement | loan_disbursement | claim_reimbursement
+  sourceType   String // finance.advance | finance.loan | finance.claim
+  sourceId     String
+  employeeId   String
+  amount       Decimal   @db.Decimal(18, 2) // cash to pay out (0 when a claim is fully covered by its advance)
+  /// Settlement preview for claims: { total, fromAdvance, reimburse, refundDue }
+  breakdown    Json?
+  accountId    String // cash / bank account to pay from
+  methodId     String?
+  notes        String?   @db.Text
+  status       String    @default("draft") // draft | pending | approved | paid | rejected
+  paidAt       DateTime?
+  journalId    String?
+  custom       Json?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([companyId, status])
+  @@index([sourceType, sourceId])
+  @@index([employeeId])
+}

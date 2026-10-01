@@ -1,0 +1,105 @@
+/// A place that has utility connections (office, warehouse, tower site, residence…).
+model UtilitySite {
+  id            String    @id @default(cuid())
+  companyId     String
+  branchId      String?
+  code          String?
+  name          String
+  address       String?   @db.Text
+  contactPerson String?
+  phone         String?
+  status        String    @default("active") // active | closed
+  notes         String?   @db.Text
+  custom        Json?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  @@index([companyId])
+}
+
+/// One metered/billed service at a site, e.g. "HQ – Electricity (main meter)".
+model UtilityConnection {
+  id            String    @id @default(cuid())
+  companyId     String
+  branchId      String?
+  siteId        String
+  name          String
+  type          String    @default("electricity") // electricity | gas | water | internet | phone | sewerage | other
+  vendorId      String?
+  provider      String?
+  accountNo     String?   /// consumer / customer / reference number on the bill
+  meterNo       String?
+  unit          String?   /// kWh, m³, GB…
+  tariff        Decimal?  @db.Decimal(18, 4) /// estimated rate per unit
+  fixedCharge   Decimal?  @db.Decimal(18, 2) /// line rent / meter rent / fixed monthly charge
+  billingDay    Int       @default(1) /// day of month the bill is normally issued
+  dueDays       Int       @default(14) /// days from bill date to due date
+  accountId     String    /// expense GL account the bills post to
+  status        String    @default("active") // active | suspended | disconnected
+  notes         String?   @db.Text
+  custom        Json?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+
+  @@index([companyId, siteId])
+}
+
+/// Meter reading; previous reading and consumption are filled in automatically.
+model UtilityReading {
+  id           String    @id @default(cuid())
+  companyId    String
+  branchId     String?
+  connectionId String
+  date         DateTime  @db.Date
+  reading      Decimal   @db.Decimal(18, 3)
+  previous     Decimal?  @db.Decimal(18, 3)
+  consumption  Decimal?  @db.Decimal(18, 3)
+  meterReplaced Boolean  @default(false) /// new meter: consumption restarts from this reading
+  photo        String?   /// attachment id of the meter photo
+  notes        String?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([connectionId, date])
+}
+
+/// A bill from the provider. Creating it books a payable (shows on P & R); paying it settles that payable.
+model UtilityBill {
+  id           String    @id @default(cuid())
+  companyId    String
+  branchId     String?
+  number       String?
+  connectionId String
+  siteId       String?
+  billRef      String?   /// provider's bill / invoice number
+  periodFrom   DateTime? @db.Date
+  periodTo     DateTime? @db.Date
+  billDate     DateTime  @db.Date
+  dueDate      DateTime? @db.Date
+  units        Decimal?  @db.Decimal(18, 3)
+  energyCharge Decimal   @default(0) @db.Decimal(18, 2)
+  fixedCharge  Decimal   @default(0) @db.Decimal(18, 2)
+  tax          Decimal   @default(0) @db.Decimal(18, 2)
+  otherCharges Decimal   @default(0) @db.Decimal(18, 2)
+  arrears      Decimal   @default(0) @db.Decimal(18, 2)
+  total        Decimal   @default(0) @db.Decimal(18, 2)
+  lateAmount   Decimal?  @db.Decimal(18, 2) /// amount payable after the due date
+  paid         Decimal   @default(0) @db.Decimal(18, 2)
+  status       String    @default("unpaid") // unpaid | partially_paid | paid | disputed
+  dueId        String?   /// the payable booked for this bill
+  paidAt       DateTime?
+  notes        String?   @db.Text
+  custom       Json?
+  createdById  String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([companyId, connectionId, billDate])
+}

@@ -1,0 +1,470 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Convention for every business model (the generic engine relies on it):
+//   id, companyId, [branchId], [createdById], custom Json?, createdAt, updatedAt, deletedAt
+// Workflow-enabled models also have `status String @default("draft")`.
+
+// ─── Organization ────────────────────────────────────────────
+
+model Company {
+  id          String    @id @default(cuid())
+  name        String
+  legalName   String?
+  taxId       String?
+  address     String?   @db.Text
+  phone       String?
+  email       String?
+  website     String?
+  currency    String    @default("PKR")
+  timezone    String    @default("Asia/Karachi")
+  dateFormat  String    @default("DD/MM/YYYY")
+  fiscalStart Int       @default(7) // month number
+  /// { logo, logoDark, primary, secondary, font, mode: light|dark, density: compact|comfortable, footer, terms }
+  branding    Json?
+  /// { bankName, accountTitle, iban }
+  bank        Json?
+  custom      Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  branches    Branch[]
+  users       User[]
+  roles       Role[]
+}
+
+model Branch {
+  id        String    @id @default(cuid())
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id])
+  code      String
+  name      String
+  address   String?   @db.Text
+  phone     String?
+  custom    Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([companyId, code])
+}
+
+model Department {
+  id        String    @id @default(cuid())
+  companyId String
+  branchId  String?
+  name      String
+  headId    String? // Employee
+  custom    Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([companyId])
+}
+
+model Designation {
+  id        String    @id @default(cuid())
+  companyId String
+  name      String
+  custom    Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([companyId])
+}
+
+model CostCenter {
+  id        String    @id @default(cuid())
+  companyId String
+  code      String
+  name      String
+  custom    Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([companyId])
+}
+
+/// One table for every configurable list: unit, tax, currency, payment_method, expense_head,
+/// product_category, service_rate, reason, holiday, fault, ... `value` holds type-specific data
+/// (e.g. tax {rate}, expense_head {accountId, director}, service_rate {rate}, holiday {date}).
+model MasterData {
+  id        String    @id @default(cuid())
+  companyId String
+  type      String
+  code      String?
+  name      String
+  value     Json?
+  sort      Int       @default(0)
+  isActive  Boolean   @default(true)
+  custom    Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([companyId, type])
+}
+
+// ─── Identity & RBAC ─────────────────────────────────────────
+
+model User {
+  id            String         @id @default(cuid())
+  companyId     String
+  company       Company        @relation(fields: [companyId], references: [id])
+  branchId      String?
+  departmentId  String?
+  email         String         @unique
+  username      String?        @unique
+  name          String
+  passwordHash  String
+  isActive      Boolean        @default(true)
+  failedLogins  Int            @default(0)
+  lockedUntil   DateTime?
+  totpSecret    String? // encrypted
+  totpEnabled   Boolean        @default(false)
+  resetTokenHash String?       @db.Char(64)
+  resetExpires  DateTime?
+  lastLoginAt   DateTime?
+  notifyEmail   Boolean        @default(true)
+  notifySms     Boolean        @default(false)
+  locale        String         @default("en")
+  /// Approvals route to this user while delegateUntil is in the future (leave cover).
+  delegateToId  String?
+  delegateUntil DateTime?
+  custom        Json?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
+  roles         UserRole[]
+  refreshTokens RefreshToken[]
+
+  @@index([companyId])
+}
+
+enum DataScope {
+  own
+  department
+  branch
+  all
+}
+
+model Role {
+  id          String           @id @default(cuid())
+  companyId   String
+  company     Company          @relation(fields: [companyId], references: [id])
+  name        String
+  isSystem    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@unique([companyId, name])
+}
+
+/// key format: module.resource.action
+model Permission {
+  id     String           @id @default(cuid())
+  key    String           @unique
+  module String
+  roles  RolePermission[]
+
+  @@index([module])
+}
+
+model RolePermission {
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  scope        DataScope  @default(all)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId])
+}
+
+model UserRole {
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId String
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+}
+
+/// Rotating refresh tokens. Reuse of a revoked token revokes the whole family.
+model RefreshToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  familyId  String
+  tokenHash String    @unique @db.Char(64)
+  userAgent String?   @db.VarChar(512)
+  ip        String?   @db.VarChar(64)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+/// Module / addon on-off per company. Missing row = enabled.
+model CompanyModule {
+  companyId String
+  key       String
+  enabled   Boolean @default(true)
+
+  @@id([companyId, key])
+}
+
+// ─── Platform ────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  companyId  String?
+  userId     String?
+  action     String // create | update | delete | restore | status | approve | login ...
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  ip         String?  @db.VarChar(64)
+  userAgent  String?  @db.VarChar(512)
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Comment {
+  id         String   @id @default(cuid())
+  companyId  String
+  entityType String
+  entityId   String
+  userId     String
+  body       String   @db.Text
+  internal   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId])
+}
+
+model TimeLog {
+  id         String    @id @default(cuid())
+  companyId  String
+  entityType String
+  entityId   String
+  userId     String
+  startedAt  DateTime
+  endedAt    DateTime?
+  minutes    Int       @default(0)
+  note       String?
+
+  @@index([entityType, entityId])
+  @@index([userId])
+}
+
+model Attachment {
+  id         String    @id @default(cuid())
+  companyId  String
+  entityType String
+  entityId   String
+  objectKey  String    @db.VarChar(512)
+  fileName   String
+  mimeType   String
+  size       Int
+  uploadedBy String?
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+
+  @@index([entityType, entityId])
+  @@index([companyId])
+}
+
+/// Document numbering. pattern tokens: {BR} branch code, {YYYY} {YY} {MM} {SEQ:n}
+model Sequence {
+  id        String   @id @default(cuid())
+  companyId String
+  branchId  String   @default("") // "" = company-wide
+  docType   String
+  pattern   String
+  reset     String   @default("yearly") // never | yearly | monthly
+  period    String   @default("")
+  current   Int      @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, branchId, docType])
+}
+
+model SearchIndex {
+  id         String   @id @default(cuid())
+  companyId  String
+  module     String
+  entityType String // resource key
+  entityId   String
+  title      String
+  subtitle   String?
+  keywords   String?  @db.Text
+  barcode    String?
+  updatedAt  DateTime @updatedAt
+
+  @@unique([entityType, entityId])
+  @@index([companyId, module])
+  @@index([barcode])
+  @@fulltext([title, keywords])
+}
+
+model Setting {
+  id        String   @id @default(cuid())
+  companyId String
+  key       String
+  value     Json
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, key])
+}
+
+/// Admin-defined extra fields. Values are stored in the target record's `custom` JSON column.
+model CustomField {
+  id        String    @id @default(cuid())
+  companyId String
+  resource  String // resource key, e.g. hrm.employee
+  name      String
+  label     String
+  type      String // string | number | date | bool | enum | file
+  options   Json?
+  required  Boolean   @default(false)
+  sort      Int       @default(0)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([companyId, resource, name])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  companyId String
+  userId    String
+  title     String
+  body      String?   @db.Text
+  link      String?
+  readAt    DateTime?
+  /// Email outbox: sent by the scheduler, retried on failure.
+  emailedAt DateTime?
+  emailTries Int      @default(0)
+  smsAt     DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId, readAt])
+  @@index([emailedAt, emailTries])
+}
+
+/// Editable templates for notifications and print documents.
+model Template {
+  id        String    @id @default(cuid())
+  companyId String
+  kind      String // notification | print
+  key       String // e.g. approval.pending, repair.job
+  subject   String?
+  body      String    @db.Text
+  custom    Json?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@unique([companyId, kind, key])
+}
+
+/// Per-user saved DataView configuration.
+model SavedView {
+  id        String   @id @default(cuid())
+  companyId String
+  userId    String
+  resource  String
+  name      String
+  config    Json
+  createdAt DateTime @default(now())
+
+  @@index([userId, resource])
+}
+
+// ─── Workflow ────────────────────────────────────────────────
+
+/// conditions: { minAmount?, maxAmount?, branchId?, departmentId?, equals?: {field: value} }
+/// steps: [{ name, approverType: role|user|manager|department_head, approverId?, mode?: any|all,
+///          escalateAfterHours?, escalateToRoleId? }]
+model WorkflowDefinition {
+  id         String    @id @default(cuid())
+  companyId  String
+  resource   String
+  name       String
+  priority   Int       @default(0)
+  conditions Json?
+  steps      Json
+  isActive   Boolean   @default(true)
+  custom     Json?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  deletedAt  DateTime?
+
+  @@index([companyId, resource])
+}
+
+model ApprovalRequest {
+  id            String           @id @default(cuid())
+  companyId     String
+  resource      String
+  recordId      String
+  title         String
+  amount        Decimal?         @db.Decimal(18, 2)
+  definitionId  String
+  step          Int              @default(0)
+  status        String           @default("pending") // pending | approved | rejected | returned
+  requestedById String
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+  actions       ApprovalAction[]
+  assignees     ApprovalAssignee[]
+
+  @@index([companyId, status])
+  @@index([resource, recordId])
+}
+
+/// Who must act on a request's current step, recorded when the step starts (inbox = one indexed lookup).
+model ApprovalAssignee {
+  requestId String
+  userId    String
+  step      Int
+  request   ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@id([requestId, userId])
+  @@index([userId])
+}
+
+model ApprovalAction {
+  id        String          @id @default(cuid())
+  requestId String
+  request   ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  step      Int
+  userId    String
+  action    String // submit | approve | reject | return | comment
+  comment   String?         @db.Text
+  createdAt DateTime        @default(now())
+
+  @@index([requestId])
+  @@index([userId])
+}

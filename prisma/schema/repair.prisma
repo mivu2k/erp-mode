@@ -1,0 +1,183 @@
+model Intake {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String?
+  customerId  String
+  notes       String?   @db.Text
+  receivedAt  DateTime  @default(now())
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+  jobs        Job[]
+}
+
+/// Shared job engine: repair jobs (kind=repair) and fleet maintenance (kind=fleet).
+model Job {
+  id            String    @id @default(cuid())
+  companyId     String
+  branchId      String?
+  number        String?
+  kind          String    @default("repair") // repair | fleet
+  intakeId      String?
+  intake        Intake?   @relation(fields: [intakeId], references: [id])
+  customerId    String?
+  vehicleId     String?
+  productType   String?
+  brand         String?
+  model         String?
+  serial        String?
+  /// Customer / unit asset number (military & enterprise fleets tag every set)
+  assetTag      String?
+  firmwareVersion String?
+  frequencyBand String? // e.g. VHF 136-174 MHz, UHF 403-470 MHz, HF 1.6-30 MHz
+  /// Crypto/COMSEC keys cleared before the unit entered the workshop
+  zeroized      Boolean   @default(false)
+  /// QC bench measurements: { rfPowerW, rxSensitivity, freqErrorHz, vswr, audioOk, firmwareAfter, pass, notes, by, at }
+  testResults   Json?
+  accessories   Json?
+  /// { checklist: {screen: ok|scratched...}, photos: [attachmentId] }
+  condition     Json?
+  fault         String?   @db.Text
+  passwordEnc   String?   @db.Text
+  warranty      Boolean   @default(false)
+  expectedAt    DateTime?
+  status        String    @default("received")
+  technicianId  String? // Employee
+  /// { findings, laborLines, parts, estimatedMin, photos }
+  diagnosis     Json?
+  vendorId      String? // RMA / external workshop
+  parentJobId   String? // comeback / rework
+  warrantyDays  Int       @default(0)
+  trackToken    String    @unique @default(cuid())
+  odometer      Int?
+  deliveredAt   DateTime?
+  closedAt      DateTime?
+  custom        Json?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  deletedAt     DateTime?
+  parts         JobPart[]
+
+  @@index([companyId, status])
+  @@index([technicianId, status])
+  @@index([serial])
+  @@index([assetTag])
+  @@index([vehicleId])
+}
+
+model JobPart {
+  id          String  @id @default(cuid())
+  jobId       String
+  job         Job     @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  productId   String
+  qty         Decimal @db.Decimal(18, 3)
+  issuedQty   Decimal @default(0) @db.Decimal(18, 3)
+  returnedQty Decimal @default(0) @db.Decimal(18, 3)
+  unitCost    Decimal @default(0) @db.Decimal(18, 4)
+  unitPrice   Decimal @default(0) @db.Decimal(18, 2)
+  serial      String?
+  oldPart     String? // returned_to_customer | scrapped | kept
+
+  @@index([jobId])
+}
+
+model Quotation {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String?
+  jobId       String?
+  /// Intake-level quotation covering several units; each line carries its jobId
+  intakeId    String?
+  customerId  String?
+  version     Int       @default(1)
+  /// [{ kind: labor|part, refId, description, qty, price, taxRate }]
+  lines       Json
+  subtotal    Decimal   @default(0) @db.Decimal(18, 2)
+  discount    Decimal   @default(0) @db.Decimal(18, 2)
+  tax         Decimal   @default(0) @db.Decimal(18, 2)
+  total       Decimal   @default(0) @db.Decimal(18, 2)
+  validUntil  DateTime? @db.Date
+  status      String    @default("draft") // draft | pending | approved (internal) | sent | accepted | declined | superseded
+  decisionVia String? // signature | link | phone
+  decidedAt   DateTime?
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([jobId])
+  @@index([intakeId])
+}
+
+model Invoice {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String?
+  customerId  String
+  jobId       String?
+  /// Intake-level invoice covering several units; each line carries its jobId
+  intakeId    String?
+  quotationId String?
+  date        DateTime  @db.Date
+  lines       Json
+  subtotal    Decimal   @default(0) @db.Decimal(18, 2)
+  discount    Decimal   @default(0) @db.Decimal(18, 2)
+  tax         Decimal   @default(0) @db.Decimal(18, 2)
+  total       Decimal   @default(0) @db.Decimal(18, 2)
+  paid        Decimal   @default(0) @db.Decimal(18, 2)
+  credited    Decimal   @default(0) @db.Decimal(18, 2)
+  status      String    @default("unpaid") // unpaid | partially_paid | paid | refunded | cancelled
+  journalId   String?
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([customerId])
+  @@index([jobId])
+  @@index([intakeId])
+}
+
+model CreditNote {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String?
+  invoiceId   String
+  amount      Decimal   @db.Decimal(18, 2)
+  reasonId    String? // MasterData reason
+  notes       String?   @db.Text
+  refundCash  Boolean   @default(true)
+  status      String    @default("draft") // draft | pending | approved | posted | rejected
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+}
+
+model DeliveryOrder {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  number      String?
+  customerId  String
+  intakeId    String?
+  jobIds      Json
+  receivedBy  String?
+  signature   String? // attachment id / data url
+  checklist   Json?
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+}

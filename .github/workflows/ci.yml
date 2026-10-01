@@ -1,0 +1,72 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env: { MYSQL_ROOT_PASSWORD: root, MYSQL_DATABASE: erp, MYSQL_USER: erp, MYSQL_PASSWORD: erp }
+        ports: ["3306:3306"]
+        options: --health-cmd="mysqladmin ping -proot" --health-interval=5s --health-retries=20
+    env:
+      DATABASE_URL: mysql://root:root@127.0.0.1:3306/erp
+      JWT_ACCESS_SECRET: ci-secret
+      FIELD_ENCRYPTION_KEY: ci-field-key
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prisma validate && pnpm exec prisma generate
+      - run: pnpm exec prisma migrate deploy
+      - name: Migration drift check
+        run: |
+          mysql -h127.0.0.1 -uroot -proot -e "CREATE DATABASE IF NOT EXISTS erp_shadow"
+          pnpm exec prisma migrate diff --from-migrations prisma/schema/migrations --to-schema-datamodel prisma/schema --shadow-database-url mysql://root:root@127.0.0.1:3306/erp_shadow --exit-code
+      - run: pnpm --filter @erp/shared build
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
+      - run: pnpm --filter api build && pnpm --filter web build
+      - name: Seed + API e2e + UI e2e
+        if: github.event_name == 'push'
+        run: |
+          pnpm db:seed
+          (cd apps/api && node dist/main.js &) && (cd apps/web && API_URL=http://localhost:4000 npx next start -p 3000 &)
+          npx wait-on http://localhost:4000/api/health http://localhost:3000/login
+          node --import tsx --test apps/api/test/flow.e2e.ts
+          npx playwright install --with-deps chromium && npx playwright test
+
+  images:
+    if: github.event_name == 'push'
+    needs: check
+    runs-on: ubuntu-latest
+    permissions: { contents: read, packages: write }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - run: |
+          for app in api web; do
+            docker build -f apps/$app/Dockerfile -t ghcr.io/${{ github.repository }}/$app:${{ github.sha }} .
+            docker push ghcr.io/${{ github.repository }}/$app:${{ github.sha }}
+          done
+
+  deploy-staging:
+    needs: images
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - run: echo "Deploy ghcr.io/${{ github.repository }}/{api,web}:${{ github.sha }} to staging (fill in your host / k8s command). The api container runs prisma migrate deploy on start."
+
+  deploy-production:
+    needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment: production # configure required reviewers on this environment for manual approval
+    steps:
+      - run: echo "Promote ${{ github.sha }} to production."

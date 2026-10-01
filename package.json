@@ -1,0 +1,27 @@
+{
+  "name": "erp",
+  "private": true,
+  "packageManager": "pnpm@10.15.0",
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "test:api-e2e": "node --import tsx --test apps/api/test/flow.e2e.ts",
+    "test:ui": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "dotenv": "^17.0.0",
+    "prisma": "^6.16.0",
+    "tsx": "^4.20.0",
+    "turbo": "^2.5.0",
+    "typescript": "^5.9.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.16.0"
+  }
+}

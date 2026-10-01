@@ -1,0 +1,30 @@
+-- CreateTable
+CREATE TABLE `CatalogItem` (
+    `id` VARCHAR(191) NOT NULL,
+    `companyId` VARCHAR(191) NOT NULL,
+    `code` VARCHAR(191) NULL,
+    `name` VARCHAR(191) NOT NULL,
+    `kind` VARCHAR(191) NOT NULL DEFAULT 'product',
+    `category` VARCHAR(191) NULL,
+    `tagline` VARCHAR(191) NULL,
+    `summary` TEXT NULL,
+    `description` TEXT NULL,
+    `features` TEXT NULL,
+    `specs` TEXT NULL,
+    `benefits` TEXT NULL,
+    `applications` TEXT NULL,
+    `images` JSON NULL,
+    `productId` VARCHAR(191) NULL,
+    `price` DECIMAL(18, 2) NULL,
+    `showPrice` BOOLEAN NOT NULL DEFAULT false,
+    `status` VARCHAR(191) NOT NULL DEFAULT 'draft',
+    `custom` JSON NULL,
+    `createdById` VARCHAR(191) NULL,
+    `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    `updatedAt` DATETIME(3) NOT NULL,
+    `deletedAt` DATETIME(3) NULL,
+
+    INDEX `CatalogItem_companyId_status_idx`(`companyId`, `status`),
+    INDEX `CatalogItem_category_idx`(`category`),
+    PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
