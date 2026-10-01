@@ -387,6 +387,35 @@ systemctl list-timers | grep certbot     # auto-renewal is installed
 
 **B. Behind another reverse proxy** (Nginx Proxy Manager, Traefik, Cloudflare Tunnel): point it to `http://<container-ip>:80` and let that proxy do HTTPS. Keep `WEB_URL` / `CORS_ORIGINS` set to the public `https://` address.
 
+**C. LAN only, private IP (no domain), self-signed certificate.** Let's Encrypt can't certify a private IP; this makes your own 10-year certificate for it. Replace `10.10.12.195` with your IP.
+
+```bash
+IP=10.10.12.195
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+  -keyout /etc/ssl/private/erp.key -out /etc/ssl/certs/erp.crt \
+  -subj "/CN=$IP" -addext "subjectAltName=IP:$IP"
+chmod 600 /etc/ssl/private/erp.key
+
+# Port 80 now only redirects; the existing site moves to 443 with the certificate.
+sed -i 's/^    listen 80;/    listen 443 ssl;\n    ssl_certificate     \/etc\/ssl\/certs\/erp.crt;\n    ssl_certificate_key \/etc\/ssl\/private\/erp.key;/' /etc/nginx/sites-available/erp
+cat >> /etc/nginx/sites-available/erp <<'EOF'
+
+server {
+    listen 80;
+    return 301 https://$host$request_uri;
+}
+EOF
+nginx -t && systemctl reload nginx
+```
+
+In `/opt/erp/.env` set `WEB_URL=https://10.10.12.195` and `CORS_ORIGINS=https://10.10.12.195` (and no `COOKIE_SECURE` line), then `systemctl restart erp-api erp-web`.
+
+Browsers warn ("Not secure") until each PC trusts the certificate once. Copy `/etc/ssl/certs/erp.crt` to the PC, then:
+- **Windows:** double-click `erp.crt` → Install Certificate → Local Machine → *Place all certificates in the following store* → **Trusted Root Certification Authorities** → Finish. Restart the browser.
+- **macOS:** open it in Keychain Access (System keychain) → double-click the certificate → Trust → *Always Trust*.
+- **Android:** Settings → Security → Encryption & credentials → Install a certificate → CA certificate.
+- **Firefox** keeps its own list: Settings → Privacy & Security → Certificates → View Certificates → Authorities → Import.
+
 **C. LAN only:** plain `http://<container-ip>` works. Set `WEB_URL=http://<container-ip>` and `CORS_ORIGINS=http://<container-ip>` in `.env`, then `systemctl restart erp-api`.
 
 > Camera QR scanning and NFC on phones (kiosk, intake) need **HTTPS** in the browser — use A or B for kiosks.
