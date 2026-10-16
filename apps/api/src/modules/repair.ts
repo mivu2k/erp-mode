@@ -584,6 +584,23 @@ export class RepairController {
     return { ...pub, company };
   }
 
+  /**
+   * Pick-lists for the intake form, readable by anyone who takes equipment in (technicians can't browse master data):
+   * equipment types / accessories / common faults, plus every make and make+model already seen on jobs.
+   */
+  @Get('repair/intake-options')
+  @Permissions('repair.job.create')
+  async intakeOptions(@CurrentUser() user: AuthUser) {
+    const md = await this.prisma.masterData.findMany({ where: { companyId: user.companyId, isActive: true, type: { in: ['equipment_type', 'accessory', 'fault'] } }, orderBy: [{ sort: 'asc' }, { name: 'asc' }], select: { id: true, type: true, name: true } });
+    const seen = await this.prisma.job.groupBy({ by: ['brand', 'model'], where: { companyId: user.companyId, deletedAt: null, brand: { not: null } }, _count: true, orderBy: { _count: { brand: 'desc' } }, take: 2000 });
+    const of = (t: string) => md.filter((m) => m.type === t).map(({ id, name }) => ({ id, name }));
+    return {
+      equipment_type: of('equipment_type'), accessory: of('accessory'), fault: of('fault'),
+      makes: [...new Set(seen.map((x) => String(x.brand).trim()).filter(Boolean))],
+      models: seen.filter((x) => x.model).map((x) => ({ make: String(x.brand).trim(), model: String(x.model).trim() })),
+    };
+  }
+
   @Get('repair/dashboard')
   async dashboard(@CurrentUser() user: AuthUser, @Query('days') daysQ = '30') {
     assertCan(user, 'repair.dashboard.view');

@@ -29,6 +29,7 @@ export default function IntakePage() {
   const [items, setItems] = useState<Item[]>([blank()]);
   const [known, setKnown] = useState<Record<number, Known>>({});
   const [md, setMd] = useState<Record<string, Md[]>>({});
+  const [seen, setSeen] = useState<{ makes: string[]; models: { make: string; model: string }[] }>({ makes: [], models: [] });
   const [error, setError] = useState<unknown>(null);
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -36,9 +37,9 @@ export default function IntakePage() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    for (const type of ['equipment_type', 'accessory', 'fault']) {
-      api<{ rows: Md[] }>(`r/core.masterdata?${qs({ pageSize: 100, sort: 'sort:asc', filters: { type, isActive: true } })}`).then((d) => setMd((m) => ({ ...m, [type]: d.rows }))).catch(() => {});
-    }
+    // One request, readable by technicians too (they can't browse master data).
+    api<Record<string, Md[]> & { makes: string[]; models: { make: string; model: string }[] }>('repair/intake-options')
+      .then(({ makes, models, ...lists }) => { setMd(lists); setSeen({ makes, models }); }).catch(setError);
     // Restore an unfinished intake (photos can't be kept across reloads).
     try {
       const d = JSON.parse(localStorage.getItem(DRAFT) ?? 'null');
@@ -187,9 +188,12 @@ export default function IntakePage() {
                   {idFields.map((f) => (
                     <div key={f.name}>
                       <Label htmlFor={`${f.name}${i}`}>{f.label}</Label>
-                      <Input id={`${f.name}${i}`} value={String(it[f.name] ?? '')} placeholder={f.name === 'frequencyBand' ? 'e.g. VHF 136–174 MHz' : undefined} onChange={(e) => set(i, { [f.name]: e.target.value })} />
+                      <Input id={`${f.name}${i}`} list={f.name === 'brand' || f.name === 'model' ? `${f.name}s${i}` : undefined} value={String(it[f.name] ?? '')} placeholder={f.name === 'frequencyBand' ? 'e.g. VHF 136–174 MHz' : undefined} onChange={(e) => set(i, { [f.name]: e.target.value })} />
                     </div>
                   ))}
+                  {/* Makes and models already seen on jobs; models narrow to the make typed (any make if none). */}
+                  <datalist id={`brands${i}`}>{seen.makes.map((m) => <option key={m} value={m} />)}</datalist>
+                  <datalist id={`models${i}`}>{[...new Set(seen.models.filter((x) => !it.brand || x.make.toLowerCase() === String(it.brand).trim().toLowerCase()).map((x) => x.model))].map((m) => <option key={m} value={m} />)}</datalist>
                 </div>
 
                 <div>
