@@ -1,5 +1,5 @@
 'use client';
-import { Button, Card, cx, ErrorBox, FieldMeta, FormGrid, Input, Label, PageHeader, Select, Switch, Textarea } from '@erp/ui';
+import { Button, Card, cx, ErrorBox, FieldMeta, FormGrid, Input, Label, PageHeader, Switch, Textarea } from '@erp/ui';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { api, openDoc, qs } from '@/lib/api';
@@ -24,6 +24,7 @@ const unitLabel = (it: Item) => [it.brand, it.model].filter(Boolean).join(' ') |
 /** Workshop intake for radios, cameras, gateways and other comms hardware: one job per unit. */
 export default function IntakePage() {
   const [customerId, setCustomerId] = useState<unknown>(null);
+  const [newCust, setNewCust] = useState<{ name: string; phone: string } | null>(null);
   const [notes, setNotes] = useState('');
   const [items, setItems] = useState<Item[]>([blank()]);
   const [known, setKnown] = useState<Record<number, Known>>({});
@@ -137,7 +138,17 @@ export default function IntakePage() {
             values={{ customerId, notes }} renderRef={renderRef} onChange={(k, v) => (k === 'customerId' ? setCustomerId(v) : setNotes(String(v ?? '')))} />
         </div>
         <Err k="customer" />
-        <p className="mt-2 text-xs text-muted-foreground">New customer? <Link className="text-primary hover:underline" href="/r/sales.customer/new" target="_blank">Add one</Link> in a new tab, then pick it here.</p>
+        {!newCust ? (
+          <button type="button" className="mt-2 text-xs text-primary hover:underline" onClick={() => setNewCust({ name: '', phone: '' })}>+ New customer (walk-in)</button>
+        ) : (
+          <div className="mt-2 flex flex-wrap items-end gap-2 rounded-lg border border-dashed border-border p-3">
+            <div className="min-w-48 flex-1"><Label htmlFor="nc-name" required>Customer name</Label><Input id="nc-name" autoFocus value={newCust.name} onChange={(e) => setNewCust({ ...newCust, name: e.target.value })} /></div>
+            <div className="min-w-40"><Label htmlFor="nc-phone">Phone</Label><Input id="nc-phone" value={newCust.phone} onChange={(e) => setNewCust({ ...newCust, phone: e.target.value })} /></div>
+            <Button type="button" disabled={!newCust.name.trim()} onClick={() => api<{ id: string }>('r/sales.customer', 'POST', { name: newCust.name.trim(), phone: newCust.phone.trim() || undefined })
+              .then((c) => { setCustomerId(c.id); setNewCust(null); }).catch(setError)}>Add & use</Button>
+            <Button type="button" variant="ghost" onClick={() => setNewCust(null)}>Cancel</Button>
+          </div>
+        )}
       </Card>
 
       <div className="space-y-4">
@@ -170,10 +181,8 @@ export default function IntakePage() {
                   </div>
                   <div>
                     <Label htmlFor={`type${i}`}>Equipment type</Label>
-                    <Select id={`type${i}`} value={String(it.productType ?? '')} onChange={(e) => set(i, { productType: e.target.value })}>
-                      <option value="">—</option>
-                      {(md.equipment_type ?? []).map((t) => <option key={t.id} value={t.name}>{t.name}</option>)}
-                    </Select>
+                    <Input id={`type${i}`} list={`types${i}`} value={String(it.productType ?? '')} placeholder="Pick or type a new one" onChange={(e) => set(i, { productType: e.target.value })} />
+                    <datalist id={`types${i}`}>{(md.equipment_type ?? []).map((t) => <option key={t.id} value={t.name} />)}</datalist>
                   </div>
                   {idFields.map((f) => (
                     <div key={f.name}>
