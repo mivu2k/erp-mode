@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { RefPicker } from '@/lib/RefPicker';
 import { FormEvent, Suspense, useEffect, useRef, useState } from 'react';
 import { api, openDoc, qs } from '@/lib/api';
+import { can, useMeta } from '@/lib/meta';
 
 type Rec = Record<string, unknown> & { id: string; _refs?: Record<string, string | null> };
 interface Warranty { state: 'none' | 'active' | 'expiring' | 'expired'; daysLeft: number | null }
@@ -24,12 +25,15 @@ export default function Page() {
 
 function Serials() {
   const router = useRouter();
-  const tab = useSearchParams().get('tab') ?? 'lookup';
+  // Registering adds stock-register units: only for roles with Create on Serial Tracking (the API enforces it too).
+  const canRegister = can(useMeta(), 'serials.item.create');
+  const asked = useSearchParams().get('tab') ?? 'lookup';
+  const tab = asked === 'register' && !canRegister ? 'lookup' : asked;
   const setTab = (t: string) => router.replace(`/serials?tab=${t}`);
   return (
     <>
       <PageHeader title="Serial Tracking" subtitle="Scan or type a serial number to see where the unit is, who has it, its warranty and everything that happened to it" />
-      <Tabs value={tab} onChange={setTab} tabs={[{ key: 'lookup', label: 'Look up' }, { key: 'register', label: 'Register' }, { key: 'bulk', label: 'Bulk check' }, { key: 'expiring', label: 'Warranty expiring' }]} />
+      <Tabs value={tab} onChange={setTab} tabs={[{ key: 'lookup', label: 'Look up' }, ...(canRegister ? [{ key: 'register', label: 'Register' }] : []), { key: 'bulk', label: 'Bulk check' }, { key: 'expiring', label: 'Warranty expiring' }]} />
       {tab === 'lookup' && <LookupTab />}
       {tab === 'register' && <RegisterTab />}
       {tab === 'bulk' && <BulkTab />}
