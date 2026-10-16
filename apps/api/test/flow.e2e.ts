@@ -181,12 +181,18 @@ test('Attendance: pair kiosk → NFC punch (idempotent) → process day', async 
   token = '';
   const { deviceToken } = await call('POST', 'hrm/kiosk/pair', { code });
   const h = { 'x-device-token': deviceToken };
-  await call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}`, at: '2026-09-22T04:25:00Z', idempotencyKey: `k1-${run}` }, h); // 09:25 PKT
-  await call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}`, at: '2026-09-22T04:25:00Z', idempotencyKey: `k1-${run}` }, h); // offline replay
-  await call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}`, at: '2026-09-22T12:10:00Z', idempotencyKey: `k2-${run}` }, h); // 17:10 PKT
+  // A recent working day: kiosks only trust offline timestamps from the last 7 days; Sunday (default weekend) and the seeded holidays don't count as late.
+  const holidays = ['02-05', '03-23', '05-01', '08-14', '12-25'];
+  let back = 1;
+  while (new Date(Date.now() - back * 86_400_000).getUTCDay() === 0 || holidays.includes(new Date(Date.now() - back * 86_400_000).toISOString().slice(5, 10))) back++;
+  const day0 = new Date(Date.now() - back * 86_400_000).toISOString().slice(0, 10);
+  await call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}`, at: `${day0}T04:25:00Z`, idempotencyKey: `k1-${run}` }, h); // 09:25 PKT
+  await call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}`, at: `${day0}T04:25:00Z`, idempotencyKey: `k1-${run}` }, h); // offline replay
+  await call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}`, at: `${day0}T12:10:00Z`, idempotencyKey: `k2-${run}` }, h); // 17:10 PKT
   token = saved;
-  await call('POST', 'hrm/attendance/process', { date: '2026-09-22' });
-  const day = (await list('hrm.attendance', { employeeId: ctx.emp.id }))[0];
+  await call('POST', 'hrm/attendance/process', { date: day0 });
+  // The day processed above, not whichever row is newest (the nightly job also marks today's attendance).
+  const day = (await list('hrm.attendance', { employeeId: ctx.emp.id, date: day0 }))[0];
   assert.equal(day.status, 'late');
   assert.equal(day.lateMin, 25);
   assert.equal((await list('hrm.punch', { employeeId: ctx.emp.id })).length, 2);
@@ -847,6 +853,7 @@ test('serial custody: issue → return → sell → RMA out and back to the cust
   const h = (await call('GET', `serials/lookup?serial=${sn}`)).history as J[];
   assert.deepEqual(h.map((e) => e.title), ['Registered', 'Issued', 'Returned to stock', 'Sold / handed to customer', 'Sent for RMA', 'Back from RMA']);
   assert.ok(h.slice(1).every((e) => e.by), 'each step says who did it');
+  assert.ok(!/Customer: — → c[a-z0-9]{20,}/.test(h[3].detail), `history names the customer: ${h[3].detail}`);
   await act({ action: 'scrap', note: 'water damage' });
   await assert.rejects(act({ action: 'issue', holder: 'x' }), /scrapped/);
   const sum = await call('GET', 'serials/summary');

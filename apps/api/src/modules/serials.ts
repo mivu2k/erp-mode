@@ -61,7 +61,11 @@ export class SerialsController {
       afterUpdate: async ({ tx, user, body }, rec, before) => {
         // Quick actions (POST serials/:id/action) pass their label and note through the raw body.
         const note = typeof body?._note === 'string' ? body._note.trim() : '';
-        const detail = [trackChanges(before, rec), note].filter(Boolean).join(' · ');
+        // History reads names, not ids: swap customer ids for the customer's name before comparing.
+        const ids = [before.customerId, rec.customerId].filter((x): x is string => typeof x === 'string');
+        const names = new Map((ids.length ? await tx.customer.findMany({ where: { id: { in: ids }, companyId: user.companyId }, select: { id: true, name: true } }) : []).map((c) => [c.id, c.name]));
+        const named = (r: Record<string, unknown>) => ({ ...r, customerId: typeof r.customerId === 'string' ? names.get(r.customerId) ?? r.customerId : r.customerId });
+        const detail = [trackChanges(named(before), named(rec)), note].filter(Boolean).join(' · ');
         if (detail) await tx.serialEvent.create({ data: { companyId: user.companyId, serialItemId: String(rec.id), serial: String(rec.serial), userId: user.id, title: typeof body?._title === 'string' ? body._title : 'Tracking updated', detail } });
       },
     });
