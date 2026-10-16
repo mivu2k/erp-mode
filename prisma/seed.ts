@@ -75,7 +75,7 @@ async function main() {
     ['CONNECTOR', 'Antenna connector damaged'], ['WATER', 'Water ingress'], ['VIDEO', 'No video / image'], ['LINK', 'Network link down'],
   ]);
   await ensure('service_rate', [
-    ['BENCH', 'Bench test & diagnosis', { rate: 2500 }], ['ALIGN', 'Alignment / RF tuning', { rate: 6000 }], ['FW', 'Firmware upgrade / programming', { rate: 3000 }],
+    ['LABOR-STD', 'Standard Labor (per job)', { rate: 1500 }], ['BENCH', 'Bench test & diagnosis', { rate: 2500 }], ['ALIGN', 'Alignment / RF tuning', { rate: 6000 }], ['FW', 'Firmware upgrade / programming', { rate: 3000 }],
     ['BOARD', 'Board-level repair', { rate: 12000 }], ['RFPA', 'RF / PA module replacement', { rate: 8000 }], ['ANT', 'Antenna / connector repair', { rate: 2000 }],
     ['BATT', 'Battery refurbishment', { rate: 3500 }], ['CAM-CAL', 'Camera calibration / lens service', { rate: 5000 }], ['GW-CONF', 'Gateway configuration / reset', { rate: 2500 }],
   ]);

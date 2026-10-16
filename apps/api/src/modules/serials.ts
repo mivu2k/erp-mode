@@ -135,7 +135,18 @@ export class SerialsController {
   @Post(':id/action')
   @Permissions('serials.item.update')
   async action(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
-    const b = parse(z.object({ action: z.enum(['issue', 'return', 'demo', 'rma', 'scrap', 'move']), employeeId: z.string().optional(), holder: z.string().max(191).optional(), location: z.string().max(191).optional(), note: z.string().max(2000).optional() }), body);
+    const b = parse(z.object({
+      action: z.enum(['issue', 'return', 'demo', 'rma', 'rma_in', 'sell', 'scrap', 'move']), employeeId: z.string().optional(), holder: z.string().max(191).optional(),
+      location: z.string().max(191).optional(), customerId: z.string().optional(), warrantyUntil: z.string().optional(), note: z.string().max(2000).optional(),
+    }), body);
+    const unit = await this.prisma.serialItem.findFirst({ where: { id, companyId: user.companyId } });
+    if (!unit) throw new NotFoundException();
+    if (unit.status === 'scrapped' && b.action !== 'return') throw new BadRequestException('This unit is scrapped; return it to stock first if that was a mistake');
+    if (b.action === 'rma_in' && unit.status !== 'rma') throw new BadRequestException('This unit is not out for RMA');
+    if (b.action === 'sell' && !b.customerId) throw new BadRequestException('Pick the customer');
+    if ((b.action === 'rma' || b.action === 'scrap') && !b.note?.trim()) throw new BadRequestException(b.action === 'rma' ? 'Add the fault / RMA number' : 'Say why it is written off');
+    // A sale without a warranty date gets one from the product (or the company default).
+    const warranty = b.warrantyUntil ?? (b.action === 'sell' && !unit.warrantyUntil && unit.productId ? warrantyEnd(new Date(), await this.warrantyMonths(this.prisma, user.companyId, unit.productId)).toISOString().slice(0, 10) : undefined);
     const emp = b.employeeId ? await this.prisma.employee.findFirst({ where: { id: b.employeeId, companyId: user.companyId }, select: { id: true, name: true } }) : null;
     if (b.employeeId && !emp) throw new BadRequestException('Employee not found');
     const holder = emp?.name ?? b.holder;
@@ -147,9 +158,16 @@ export class SerialsController {
       rma: { status: 'rma' },
       scrap: { status: 'scrapped', employeeId: null, holder: null },
       move: { location: b.location ?? null, ...(holder !== undefined ? { holder, employeeId: emp?.id ?? null } : {}) },
-    }[b.action];
-    const title = { issue: 'Issued', return: 'Returned to stock', demo: 'Out on demo', rma: 'Sent for RMA', scrap: 'Scrapped', move: 'Moved' }[b.action];
-    return this.resources.update(user, 'serials.item', id, { ...patch, _title: title, _note: b.note });
+      sell: { status: 'sold', customerId: b.customerId, employeeId: null, holder: null },
+      // Back from RMA: to the customer who owns it, else into stock.
+      rma_in: { status: unit.customerId ? 'sold' : 'in_stock', ...(b.location ? { location: b.location } : {}) },
+    }[b.action] as Record<string, unknown>;
+    if (warranty) patch.warrantyUntil = warranty;
+    const title = { issue: 'Issued', return: 'Returned to stock', demo: 'Out on demo', rma: 'Sent for RMA', rma_in: 'Back from RMA', sell: 'Sold / handed to customer', scrap: 'Scrapped', move: 'Moved' }[b.action];
+    const rec = await this.resources.update(user, 'serials.item', id, { ...patch, _title: title, _note: b.note });
+    // Sale date is maintained by the system (read-only on the form).
+    if (b.action === 'sell') await this.prisma.serialItem.update({ where: { id }, data: { soldAt: new Date() } });
+    return rec;
   }
 
   /** Landing numbers: units per status, warranties ending in 30 days, latest tracking events. */
@@ -157,13 +175,16 @@ export class SerialsController {
   @Permissions('serials.item.view')
   async summary(@CurrentUser() user: AuthUser) {
     const c = user.companyId;
-    const [byStatus, expiring, recent] = await Promise.all([
+    const [byStatus, expiring, recent, total, expired] = await Promise.all([
       this.prisma.serialItem.groupBy({ by: ['status'], where: { companyId: c }, _count: true }),
       this.prisma.serialItem.count({ where: { companyId: c, warrantyUntil: { gte: new Date(Date.now() - DAY), lte: new Date(Date.now() + 30 * DAY) } } }),
       this.prisma.serialEvent.findMany({ where: { companyId: c }, orderBy: { at: 'desc' }, take: 15 }),
+      this.prisma.serialItem.count({ where: { companyId: c } }),
+      this.prisma.serialItem.count({ where: { companyId: c, warrantyUntil: { lt: new Date(new Date().toISOString().slice(0, 10)) }, status: { not: 'scrapped' } } }),
     ]);
     const names = await this.userNames(recent.map((e) => e.userId));
     return {
+      total, expired,
       byStatus: Object.fromEntries(byStatus.map((g) => [g.status, g._count])),
       expiring,
       recent: recent.map((e) => ({ at: e.at, serial: e.serial, serialItemId: e.serialItemId, title: e.title, detail: e.detail, by: e.userId ? names.get(e.userId) : undefined })),

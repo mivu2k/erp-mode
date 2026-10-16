@@ -40,8 +40,7 @@ function menu(meta: Meta) {
   if (can(meta, 'hrm.attendance.manage')) add('hrm', '/hrm/attendance', 'Process attendance');
   if (can(meta, 'catalog.item.print')) add('catalog', '/catalog/builder', 'Brochure & deck builder');
   if (can(meta, 'catalog.item.update')) add('catalog', '/catalog/profile', 'Company profile');
-  if (can(meta, 'serials.item.view')) add('serials', '/serials', 'Lookup & history');
-  if (can(meta, 'serials.item.create')) add('serials', '/serials?tab=register', 'Register serials');
+  if (can(meta, 'serials.item.view')) add('serials', '/serials', 'Tracker');
   if (can(meta, 'payables.due.view')) add('payables', '/payables', 'Timeline');
   if (can(meta, 'utilities.connection.view')) add('utilities', '/utilities', 'Tracker');
   if (can(meta, 'payables.due.create')) { add('payables', '/r/payables.due/new?direction=receivable', 'Add receivable'); add('payables', '/r/payables.due/new?direction=payable', 'Add payable'); }

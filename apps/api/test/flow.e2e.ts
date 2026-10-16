@@ -828,6 +828,31 @@ test('serial tracking works standalone: register by hand, skip duplicates, track
   assert.match(h[1], /Status: in stock → demo · Location: HQ rack 2 → Site B · Holder: — → Field team 3/);
 });
 
+test('serial custody: issue → return → sell → RMA out and back to the customer; scrapped units stay put', async () => {
+  const sn = `CUS-${run}`;
+  await call('POST', 'serials/register', { serials: [sn], itemName: 'Handheld radio', brand: 'Motorola', model: 'APX 6000' });
+  const id = (await list('serials.item', { serial: sn }))[0].id;
+  const act = (b: J) => call('POST', `serials/${id}/action`, b);
+  await assert.rejects(act({ action: 'issue' }), /issued to/);
+  assert.equal((await act({ action: 'issue', holder: 'Field team 3', location: 'Site B' })).status, 'issued');
+  assert.equal((await act({ action: 'return', note: 'back from site' })).holder, null);
+  await assert.rejects(act({ action: 'sell' }), /customer/);
+  const sold = await act({ action: 'sell', customerId: ctx.customer.id, warrantyUntil: '2027-10-16' });
+  assert.equal(sold.status, 'sold');
+  assert.ok((await call('GET', `r/serials.item/${id}`)).soldAt, 'sale date recorded');
+  await assert.rejects(act({ action: 'rma_in' }), /not out for RMA/);
+  await assert.rejects(act({ action: 'rma' }), /RMA number/);
+  assert.equal((await act({ action: 'rma', note: 'No TX, RMA #42' })).status, 'rma');
+  assert.equal((await act({ action: 'rma_in' })).status, 'sold', 'back to the customer who owns it');
+  const h = (await call('GET', `serials/lookup?serial=${sn}`)).history as J[];
+  assert.deepEqual(h.map((e) => e.title), ['Registered', 'Issued', 'Returned to stock', 'Sold / handed to customer', 'Sent for RMA', 'Back from RMA']);
+  assert.ok(h.slice(1).every((e) => e.by), 'each step says who did it');
+  await act({ action: 'scrap', note: 'water damage' });
+  await assert.rejects(act({ action: 'issue', holder: 'x' }), /scrapped/);
+  const sum = await call('GET', 'serials/summary');
+  assert.ok(sum.total >= 1 && sum.byStatus.scrapped >= 1 && typeof sum.expired === 'number');
+});
+
 test('serial tracking: supplier, sale, warranty, full history, intake auto-warranty, bulk', async () => {
   const sn = `SN2-${run}`; // received on a PO, sent on demo, sold (gatepass test)
   const item = (await list('serials.item', { serial: sn }))[0];

@@ -1,311 +1,349 @@
 'use client';
-import { Button, Card, cx, EmptyState, ErrorBox, Input, PageHeader, Select, StatusBadge, Tabs, Textarea, Timeline } from '@erp/ui';
+import { Button, cx, Dialog, EmptyState, ErrorBox, Input, PageHeader, Select, StatusBadge, Textarea, Timeline } from '@erp/ui';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
 import { RefPicker } from '@/lib/RefPicker';
-import { FormEvent, Suspense, useEffect, useRef, useState } from 'react';
+import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { api, openDoc, qs } from '@/lib/api';
 import { can, useMeta } from '@/lib/meta';
 
 type Rec = Record<string, unknown> & { id: string; _refs?: Record<string, string | null> };
 interface Warranty { state: 'none' | 'active' | 'expiring' | 'expired'; daysLeft: number | null }
-interface Lookup { serial: string; item: Rec | null; product: { id: string; sku: string; name: string } | null; warranty: Warranty; history: { at: string; title: string; detail?: string; link?: string; by?: string }[] }
+interface Lookup { serial: string; item: Rec | null; history: { at: string; title: string; detail?: string; link?: string; by?: string }[] }
+interface Summary { total: number; byStatus: Record<string, number>; expiring: number; expired: number }
 
+const DAY = 86_400_000;
+const iso = (t: number) => new Date(t).toISOString().slice(0, 10);
 const TONE: Record<Warranty['state'], string> = { active: 'green', expiring: 'amber', expired: 'red', none: 'gray' };
-function WarrantyBadge({ w, until }: { w: Warranty; until?: unknown }) {
-  const text = w.state === 'none' ? 'No warranty on record' : w.state === 'expired' ? `Warranty expired ${String(until).slice(0, 10)}` : `Warranty until ${String(until).slice(0, 10)} (${w.daysLeft} days left)`;
-  return <span className="rounded-full px-2.5 py-1 text-xs font-medium" style={{ color: `var(--tone-${TONE[w.state]})`, background: `var(--tone-${TONE[w.state]}-bg)` }}>{text}</span>;
+/** Warranty state from the date alone (same rule as the server: ≤ 30 days left is "expiring"). */
+function warrantyOf(until: unknown): Warranty {
+  if (!until) return { state: 'none', daysLeft: null };
+  const days = Math.floor((+new Date(String(until).slice(0, 10)) - +new Date(iso(Date.now()))) / DAY);
+  return { state: days < 0 ? 'expired' : days <= 30 ? 'expiring' : 'active', daysLeft: days };
 }
-const d = (v: unknown) => (v ? new Date(String(v)).toLocaleDateString() : '—');
+function WarrantyBadge({ until, long }: { until: unknown; long?: boolean }) {
+  const w = warrantyOf(until);
+  if (w.state === 'none') return <span className="text-xs text-muted-foreground">{long ? 'No warranty on record' : '—'}</span>;
+  const date = String(until).slice(0, 10);
+  const text = w.state === 'expired' ? (long ? `Warranty expired ${date}` : `Expired ${date}`) : long ? `Warranty until ${date} (${w.daysLeft} days left)` : `${date} · ${w.daysLeft}d`;
+  return <span className="whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium" style={{ color: `var(--tone-${TONE[w.state]})`, background: `var(--tone-${TONE[w.state]}-bg)` }}>{text}</span>;
+}
+const nice = (s: unknown) => String(s ?? '').replace(/_/g, ' ');
+const ref = (r: Rec, k: string) => { const v = r._refs?.[k]; return v && v !== '—' ? v : null; };
+const itemOf = (r: Rec) => ref(r, 'productId') ?? ([r.itemName, [r.brand, r.model].filter(Boolean).join(' ')].filter(Boolean).join(' · ') || '—');
+const whereOf = (r: Rec) => [ref(r, 'warehouseId'), r.location, r.holder && `with ${r.holder}`, r.status === 'sold' && ref(r, 'customerId')].filter(Boolean).join(' · ') || '—';
 
-/** Serial tracking: where a unit is, who has it, warranty and full history — by scan, bulk paste or expiry. */
+/** The status / warranty chips double as the list's quick filters. */
+const VIEWS: { key: string; label: string; filters: () => Record<string, unknown>; count: (s: Summary) => number }[] = [
+  { key: 'all', label: 'All units', filters: () => ({}), count: (s) => s.total },
+  { key: 'in_stock', label: 'In stock', filters: () => ({ status: 'in_stock' }), count: (s) => s.byStatus.in_stock ?? 0 },
+  { key: 'issued', label: 'Issued', filters: () => ({ status: 'issued' }), count: (s) => s.byStatus.issued ?? 0 },
+  { key: 'demo', label: 'On demo', filters: () => ({ status: 'demo' }), count: (s) => s.byStatus.demo ?? 0 },
+  { key: 'sold', label: 'With customers', filters: () => ({ status: 'sold' }), count: (s) => s.byStatus.sold ?? 0 },
+  { key: 'rma', label: 'Out for RMA', filters: () => ({ status: 'rma' }), count: (s) => s.byStatus.rma ?? 0 },
+  { key: 'scrapped', label: 'Scrapped / out', filters: () => ({ status: ['scrapped', 'out'] }), count: (s) => (s.byStatus.scrapped ?? 0) + (s.byStatus.out ?? 0) },
+  { key: 'expiring', label: 'Warranty ≤ 30 days', filters: () => ({ warrantyUntil: { gte: iso(Date.now() - DAY), lte: iso(Date.now() + 30 * DAY) } }), count: (s) => s.expiring },
+  { key: 'expired', label: 'Warranty expired', filters: () => ({ warrantyUntil: { lt: iso(Date.now()) }, status: { ne: 'scrapped' } }), count: (s) => s.expired },
+];
+
 export default function Page() {
   return <Suspense><Serials /></Suspense>;
 }
 
+/** Serial tracking: every unit in one list, filtered by status or warranty; pick one to see its history and move it on. */
 function Serials() {
-  const router = useRouter();
-  // Registering adds stock-register units: only for roles with Create on Serial Tracking (the API enforces it too).
-  const canRegister = can(useMeta(), 'serials.item.create');
-  const asked = useSearchParams().get('tab') ?? 'overview';
-  const tab = asked === 'register' && !canRegister ? 'lookup' : asked;
-  const setTab = (t: string) => router.replace(`/serials?tab=${t}`);
+  const meta = useMeta();
+  const canRegister = can(meta, 'serials.item.create');
+  const canAct = can(meta, 'serials.item.update');
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [view, setView] = useState('all');
+  const [q, setQ] = useState('');
+  const [rows, setRows] = useState<Rec[]>([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [sel, setSel] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<'register' | 'bulk' | null>(null);
+  const [error, setError] = useState<unknown>(null);
+  const scan = useRef<HTMLInputElement>(null);
+  const [tick, setTick] = useState(0); // bump to reload after a change
+  const refresh = () => setTick((t) => t + 1);
+
+  useEffect(() => { scan.current?.focus(); }, []);
+  useEffect(() => { api<Summary>('serials/summary').then(setSummary).catch(setError); }, [tick]);
+  const filters = VIEWS.find((v) => v.key === view)!.filters();
+  const query = qs({ search: q.trim() || undefined, filters: JSON.stringify(filters), sort: 'updatedAt:desc', pageSize: 50 });
+  useEffect(() => {
+    const t = setTimeout(() => {
+      api<{ rows: Rec[]; total: number }>(`r/serials.item?${query}&page=1`).then((d) => { setRows(d.rows); setTotal(d.total); setPage(1); }).catch(setError);
+    }, q ? 250 : 0);
+    return () => clearTimeout(t);
+  }, [query, tick, q]);
+  const more = () => api<{ rows: Rec[] }>(`r/serials.item?${query}&page=${page + 1}`).then((d) => { setRows((r) => [...r, ...d.rows]); setPage(page + 1); }).catch(setError);
+
+  // Scanner: Enter on an exact serial opens that unit straight away.
+  const onScan = async (e: FormEvent) => {
+    e.preventDefault();
+    const s = q.trim();
+    if (!s) return;
+    setError(null);
+    const hit = rows.find((r) => String(r.serial).toLowerCase() === s.toLowerCase());
+    if (hit) return setSel(hit.id);
+    try { const r = await api<Lookup>(`serials/lookup?${qs({ serial: s })}`); if (r.item) setSel(r.item.id); else setError(new Error(`${s} is not in the register (only seen on repair jobs)`)); } catch (err) { setError(err); }
+  };
+
   return (
     <>
-      <PageHeader title="Serial Tracking" subtitle="Scan or type a serial number to see where the unit is, who has it, its warranty and everything that happened to it" />
-      <Tabs value={tab} onChange={setTab} tabs={[{ key: 'overview', label: 'Overview' }, { key: 'lookup', label: 'Look up' }, ...(canRegister ? [{ key: 'register', label: 'Register' }] : []), { key: 'bulk', label: 'Bulk check' }, { key: 'expiring', label: 'Warranty expiring' }]} />
-      {tab === 'overview' && <OverviewTab />}
-      {tab === 'lookup' && <LookupTab />}
-      {tab === 'register' && <RegisterTab />}
-      {tab === 'bulk' && <BulkTab />}
-      {tab === 'expiring' && <ExpiringTab />}
+      <PageHeader title="Serial Tracking" subtitle="Every serialised unit: where it is, who has it, its warranty and everything that happened to it"
+        actions={<div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setDialog('bulk')}>Bulk check</Button>
+          {can(meta, 'serials.item.export') && <Button variant="outline" onClick={() => openDoc(`r/serials.item/export?${qs({ format: 'xlsx', search: q.trim() || undefined, filters: JSON.stringify(filters) })}`).catch(setError)}>Export</Button>}
+          {canRegister && <Button onClick={() => setDialog('register')}>Register serials</Button>}
+        </div>} />
+
+      <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label="Filter units">
+        {VIEWS.map((v) => (
+          <button key={v.key} type="button" aria-pressed={view === v.key} onClick={() => setView(v.key)}
+            className={cx('rounded-full border px-3 py-1 text-xs transition', view === v.key ? 'border-primary bg-primary/10 font-medium text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>
+            {v.label}{summary && <span className="ms-1.5 tabular-nums opacity-70">{v.count(summary)}</span>}
+          </button>
+        ))}
+      </div>
+      <form onSubmit={onScan} className="mb-3">
+        <Input ref={scan} aria-label="Scan or search" placeholder="Scan a serial / asset tag, or search make, model, location, holder…" value={q} onChange={(e) => setQ(e.target.value)} className="h-11 text-base" />
+      </form>
+      <ErrorBox error={error} />
+
+      <div className={cx('grid items-start gap-4', sel && 'xl:grid-cols-[1fr_26rem]')}>
+        <div className="overflow-x-auto rounded-lg border border-border bg-card">
+          {!rows.length ? <EmptyState title={q || view !== 'all' ? 'No unit matches' : 'No serials registered yet'} hint={canRegister && !q && view === 'all' ? 'Use “Register serials” to add units, or receive serialised stock on a purchase order.' : undefined} /> : (
+            <table className="w-full text-sm">
+              <thead className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
+                <tr>{['Serial', 'Item', 'Status', 'Where / who', 'Warranty', 'Last change'].map((h) => <th key={h} className="px-3 py-2 text-start font-medium">{h}</th>)}</tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.id} onClick={() => setSel(r.id)} className={cx('cursor-pointer border-b border-border/50 last:border-0 hover:bg-muted/40', sel === r.id && 'bg-primary/10')}>
+                    <td className="px-3 py-2 font-mono text-xs">{String(r.serial)}</td>
+                    <td className="px-3 py-2">{itemOf(r)}</td>
+                    <td className="px-3 py-2"><StatusBadge status={String(r.status)} /></td>
+                    <td className="px-3 py-2 text-muted-foreground">{whereOf(r)}</td>
+                    <td className="px-3 py-2"><WarrantyBadge until={r.warrantyUntil} /></td>
+                    <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">{new Date(String(r.updatedAt)).toLocaleDateString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {rows.length > 0 && (
+            <div className="flex items-center justify-between border-t border-border px-3 py-2 text-xs text-muted-foreground">
+              <span>{rows.length} of {total}</span>
+              {rows.length < total && <Button size="sm" variant="ghost" onClick={more}>Show more</Button>}
+            </div>
+          )}
+        </div>
+        {sel && <UnitPanel id={sel} canAct={canAct} onClose={() => setSel(null)} onChanged={refresh} />}
+      </div>
+
+      <Dialog open={dialog === 'register'} onClose={() => setDialog(null)} title="Register serials" wide><Register onDone={refresh} /></Dialog>
+      <Dialog open={dialog === 'bulk'} onClose={() => setDialog(null)} title="Bulk check" wide><Bulk onOpen={(id) => { setDialog(null); setSel(id); }} /></Dialog>
     </>
   );
 }
 
-function LookupTab() {
-  const canUpdate = can(useMeta(), 'serials.item.update');
-  const [q, setQ] = useState(useSearchParams().get('serial') ?? '');
-  const [res, setRes] = useState<Lookup | null>(null);
+type Field = 'employeeId' | 'holder' | 'location' | 'customerId' | 'warrantyUntil' | 'note';
+/** The custody steps the server offers (POST serials/:id/action); `when` hides steps that make no sense for the current status. */
+const STEPS: { key: string; label: string; fields: Field[]; ready: (f: Record<string, unknown>) => boolean; when: (s: string) => boolean; danger?: boolean }[] = [
+  { key: 'issue', label: 'Issue to…', fields: ['employeeId', 'holder', 'location', 'note'], ready: (f) => !!(f.employeeId || String(f.holder ?? '').trim()), when: (s) => ['in_stock', 'demo'].includes(s) },
+  { key: 'return', label: 'Return to stock', fields: ['location', 'note'], ready: () => true, when: (s) => ['issued', 'demo', 'sold', 'out', 'scrapped'].includes(s) },
+  { key: 'move', label: 'Move location', fields: ['location', 'note'], ready: (f) => !!String(f.location ?? '').trim(), when: (s) => s !== 'scrapped' },
+  { key: 'demo', label: 'Send on demo', fields: ['holder', 'location', 'note'], ready: () => true, when: (s) => s === 'in_stock' },
+  { key: 'sell', label: 'Sell / hand to customer', fields: ['customerId', 'warrantyUntil', 'note'], ready: (f) => !!f.customerId, when: (s) => ['in_stock', 'demo', 'issued'].includes(s) },
+  { key: 'rma', label: 'Send for RMA', fields: ['note'], ready: (f) => !!String(f.note ?? '').trim(), when: (s) => !['rma', 'scrapped'].includes(s) },
+  { key: 'rma_in', label: 'Back from RMA', fields: ['location', 'warrantyUntil', 'note'], ready: () => true, when: (s) => s === 'rma' },
+  { key: 'scrap', label: 'Scrap', fields: ['note'], ready: (f) => !!String(f.note ?? '').trim(), when: (s) => s !== 'scrapped', danger: true },
+];
+const FIELD_LABEL: Record<Field, string> = { employeeId: 'Employee', holder: 'Or another person / team', location: 'Location (site, vehicle, rack…)', customerId: 'Customer', warrantyUntil: 'Warranty until', note: 'Note' };
+const NOTE_HINT: Record<string, string> = { rma: 'Fault, vendor, RMA / ticket number', scrap: 'Why it is written off' };
+
+/** One unit: where it is, warranty, history, and the next custody step. */
+function UnitPanel({ id, canAct, onClose, onChanged }: { id: string; canAct: boolean; onClose(): void; onChanged(): void }) {
+  const [unit, setUnit] = useState<Rec | null>(null);
+  const [look, setLook] = useState<Lookup | null>(null);
+  const [step, setStep] = useState<(typeof STEPS)[number] | null>(null);
+  const [form, setForm] = useState<Record<string, unknown>>({});
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
-  useEffect(() => { input.current?.focus(); if (q) go(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const go = async (e?: FormEvent) => {
-    e?.preventDefault();
-    if (!q.trim()) return;
-    setBusy(true); setError(null); setRes(null);
-    try { setRes(await api<Lookup>(`serials/lookup?${qs({ serial: q.trim() })}`)); } catch (err) { setError(err); } finally { setBusy(false); input.current?.select(); }
+  const load = useCallback(async () => {
+    setError(null);
+    try {
+      const u = await api<Rec>(`r/serials.item/${id}`);
+      setUnit(u);
+      setLook(await api<Lookup>(`serials/lookup?${qs({ serial: String(u.serial) })}`));
+    } catch (e) { setError(e); }
+  }, [id]);
+  useEffect(() => { setStep(null); setUnit(null); setLook(null); load(); }, [load]);
+  const start = (s: (typeof STEPS)[number]) => { setStep(s); setForm(s.fields.includes('location') && s.key === 'move' ? { location: unit?.location ?? '' } : {}); setError(null); };
+  const submit = async () => {
+    if (!step) return;
+    setBusy(true); setError(null);
+    try {
+      await api(`serials/${id}/action`, 'POST', { action: step.key, ...Object.fromEntries(Object.entries(form).filter(([, v]) => v !== undefined && v !== null && v !== '')) });
+      setStep(null); await load(); onChanged();
+    } catch (e) { setError(e); } finally { setBusy(false); }
   };
-  const it = res?.item;
+  const status = String(unit?.status ?? '');
+
   return (
-    <div className="space-y-4">
-      <form onSubmit={go} className="flex gap-2">
-        <Input ref={input} aria-label="Serial number" placeholder="Scan or type a serial number, IMEI or asset tag…" value={q} onChange={(e) => setQ(e.target.value)} className="h-12 text-base" />
-        <Button className="h-12 whitespace-nowrap px-6" disabled={busy}>{busy ? 'Searching…' : 'Look up'}</Button>
-      </form>
-      <ErrorBox error={error} />
-      {res && (
-        <div className="grid items-start gap-4 lg:grid-cols-[1fr_22rem]">
-          <Card title="History">
-            {res.history.length ? (
-              <Timeline items={res.history.map((h) => ({ at: h.at, title: h.link ? <Link className="text-primary hover:underline" href={h.link}>{h.title}</Link> : h.title, body: [h.detail, h.by && `by ${h.by}`].filter(Boolean).join(' · ') }))} />
-            ) : <EmptyState title="No movements recorded yet" />}
-          </Card>
-          <Card title={res.serial}>
-            <div className="space-y-3 text-sm">
-              <div className="flex flex-wrap items-center gap-2">{it ? <StatusBadge status={String(it.status)} /> : <span className="text-xs text-muted-foreground">Not in stock register (seen on repair jobs only)</span>}</div>
-              <WarrantyBadge w={res.warranty} until={it?.warrantyUntil} />
-              <dl className="space-y-2">
-                {[
-                  ['Product', res.product ? `${res.product.name} (${res.product.sku})` : '—'],
-                  ['Location', it?._refs?.warehouseId ?? (it ? '—' : '')],
-                  ['Customer', it?._refs?.customerId ?? '—'],
-                  ['Sold', d(it?.soldAt)],
-                  ['Supplier', it?._refs?.vendorId ?? '—'],
-                  ['Received', d(it?.receivedAt)],
-                ].filter(([, v]) => v !== '').map(([k, v]) => (
-                  <div key={String(k)} className="flex justify-between gap-3"><dt className="text-muted-foreground">{k}</dt><dd className="text-end">{String(v)}</dd></div>
-                ))}
-              </dl>
-              {typeof it?.notes === 'string' && it.notes && <p className="rounded-md bg-muted p-2 text-xs">{it.notes}</p>}
-              {it && canUpdate && <QuickActions id={it.id} status={String(it.status)} onDone={() => go()} />}
-              {it && (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  <Link href={`/r/serials.item/${it.id}`}><Button size="sm" variant="outline">Open / edit</Button></Link>
-                  <Button size="sm" variant="ghost" onClick={() => openDoc(`serials/${it.id}/history-page?format=html`)}>Print history</Button>
-                  <Button size="sm" variant="ghost" onClick={() => openDoc(`print/serials.item/${it.id}?template=label`)}>Label</Button>
-                </div>
-              )}
-            </div>
-          </Card>
+    <aside className="rounded-lg border border-border bg-card p-4 xl:sticky xl:top-20" aria-label="Unit details">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="font-mono text-base font-semibold">{String(unit?.serial ?? '…')}</div>
+          <div className="truncate text-sm text-muted-foreground">{unit ? itemOf(unit) : ''}</div>
         </div>
+        <button type="button" aria-label="Close" onClick={onClose} className="rounded px-1.5 text-muted-foreground hover:bg-muted">✕</button>
+      </div>
+      <ErrorBox error={error} />
+      {unit && (
+        <>
+          <div className="mt-2 flex flex-wrap items-center gap-2"><StatusBadge status={status} /><WarrantyBadge until={unit.warrantyUntil} long /></div>
+          <dl className="mt-3 space-y-1.5 text-sm">
+            {([
+              ['Where', [ref(unit, 'warehouseId'), unit.location].filter(Boolean).join(' · ')],
+              ['Held by', ref(unit, 'employeeId') ?? unit.holder], ['Customer', ref(unit, 'customerId')],
+              ['Sold', unit.soldAt && String(unit.soldAt).slice(0, 10)], ['Supplier', ref(unit, 'vendorId')],
+              ['Received', unit.receivedAt && String(unit.receivedAt).slice(0, 10)],
+            ] as [string, unknown][]).filter(([, v]) => v).map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-3"><dt className="text-muted-foreground">{k}</dt><dd className="text-end">{nice(v)}</dd></div>
+            ))}
+          </dl>
+          {typeof unit.notes === 'string' && unit.notes && <p className="mt-2 rounded-md bg-muted p-2 text-xs">{unit.notes}</p>}
+
+          {canAct && !step && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {STEPS.filter((s) => s.when(status)).map((s) => <Button key={s.key} size="sm" variant={s.danger ? 'ghost' : 'outline'} onClick={() => start(s)}>{s.label}</Button>)}
+            </div>
+          )}
+          {step && (
+            <div className="mt-3 space-y-2 rounded-lg border border-dashed border-border p-3">
+              <div className="text-sm font-semibold">{step.label}</div>
+              {step.fields.map((f) => (
+                <label key={f} className="block text-sm">
+                  <span className="mb-1 block text-xs text-muted-foreground">{FIELD_LABEL[f]}</span>
+                  {f === 'customerId' || f === 'employeeId'
+                    ? <RefPicker f={{ name: f, type: 'string', ref: f === 'customerId' ? 'sales.customer' : 'hrm.employee', label: FIELD_LABEL[f] }} value={form[f]} onChange={(v) => setForm({ ...form, [f]: v })} />
+                    : f === 'note' ? <Textarea rows={2} value={String(form.note ?? '')} placeholder={NOTE_HINT[step.key]} onChange={(e) => setForm({ ...form, note: e.target.value })} />
+                    : <Input type={f === 'warrantyUntil' ? 'date' : 'text'} value={String(form[f] ?? '')} onChange={(e) => setForm({ ...form, [f]: e.target.value })} />}
+                </label>
+              ))}
+              {step.key === 'sell' && <p className="text-xs text-muted-foreground">Leave the warranty date empty to use the product&apos;s warranty months.</p>}
+              <div className="flex gap-2 pt-1">
+                <Button size="sm" variant={step.danger ? 'danger' : undefined} disabled={busy || !step.ready(form)} onClick={submit}>{busy ? 'Saving…' : 'Save'}</Button>
+                <Button size="sm" variant="ghost" onClick={() => setStep(null)}>Cancel</Button>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-border pt-3">
+            <Link href={`/r/serials.item/${id}`}><Button size="sm" variant="ghost">Edit details</Button></Link>
+            <Button size="sm" variant="ghost" onClick={() => openDoc(`serials/${id}/history-page?format=html`).catch(setError)}>Print history</Button>
+            <Button size="sm" variant="ghost" onClick={() => openDoc(`print/serials.item/${id}?template=label`).catch(setError)}>Label</Button>
+          </div>
+          <h3 className="mt-4 text-xs font-semibold uppercase tracking-wider text-muted-foreground">History</h3>
+          <div className="mt-2 max-h-[28rem] overflow-y-auto">
+            {!look ? <p className="text-sm text-muted-foreground">Loading…</p> : (
+              <Timeline items={[...look.history].reverse().map((h) => ({
+                at: h.at,
+                title: h.link ? <Link className="text-primary hover:underline" href={h.link}>{h.title}</Link> : h.title,
+                body: [h.detail, h.by && `by ${h.by}`].filter(Boolean).join(' · ') || undefined,
+              }))} />
+            )}
+          </div>
+        </>
       )}
-    </div>
+    </aside>
   );
 }
 
-function BulkTab() {
+function Bulk({ onOpen }: { onOpen(id: string): void }) {
   const [text, setText] = useState('');
-  const [res, setRes] = useState<{ rows: (Rec & { warranty: Warranty })[]; unknown: string[] } | null>(null);
+  const [res, setRes] = useState<{ rows: Rec[]; unknown: string[] } | null>(null);
   const [error, setError] = useState<unknown>(null);
   const check = async () => {
     setError(null);
     const serials = text.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
-    if (!serials.length) return;
-    try { setRes(await api('serials/bulk', 'POST', { serials })); } catch (e) { setError(e); }
+    if (serials.length) try { setRes(await api('serials/bulk', 'POST', { serials })); } catch (e) { setError(e); }
   };
   return (
-    <div className="space-y-4">
-      <Card>
-        <Textarea rows={6} aria-label="Serial numbers" placeholder="Paste or scan serial numbers — one per line, or separated by spaces/commas" value={text} onChange={(e) => setText(e.target.value)} className="font-mono" />
-        <div className="mt-3 flex items-center justify-between"><span className="text-xs text-muted-foreground">Up to 1000 at a time</span><Button onClick={check}>Check</Button></div>
-      </Card>
+    <div className="space-y-3">
+      <Textarea rows={6} aria-label="Serial numbers" placeholder="Paste or scan serial numbers — one per line, or separated by spaces/commas (up to 1000)" value={text} onChange={(e) => setText(e.target.value)} className="font-mono" />
+      <div className="flex justify-end"><Button onClick={check}>Check</Button></div>
       <ErrorBox error={error} />
       {res && (
-        <Card title={`${res.rows.length} found${res.unknown.length ? ` · ${res.unknown.length} unknown` : ''}`}>
-          <div className="mb-3 flex justify-end"><Button size="sm" variant="outline" onClick={() => downloadCsv('serial-check.csv', [['serial', 'product', 'status', 'location', 'holder', 'customer', 'warrantyUntil'], ...res.rows.map((r) => [r.serial, r._refs?.productId ?? r.itemName, r.status, r._refs?.warehouseId ?? r.location, r.holder, r._refs?.customerId, String(r.warrantyUntil ?? '').slice(0, 10)]), ...res.unknown.map((u) => [u, '', 'UNKNOWN'])])}>Download CSV</Button></div>
-          {res.unknown.length > 0 && <p className="mb-3 text-sm" style={{ color: 'var(--tone-red)' }}>Unknown: {res.unknown.join(', ')}</p>}
-          <div className="overflow-x-auto">
+        <>
+          <p className="text-sm">{res.rows.length} found{res.unknown.length > 0 && <span style={{ color: 'var(--tone-red)' }}> · not in the register: {res.unknown.join(', ')}</span>}</p>
+          <div className="max-h-80 overflow-auto">
             <table className="w-full text-sm">
-              <thead className="text-xs uppercase tracking-wide text-muted-foreground">
-                <tr>{['Serial', 'Product', 'Status', 'Location', 'Held by', 'Customer', 'Warranty'].map((h) => <th key={h} className="px-2 py-1.5 text-start font-medium">{h}</th>)}</tr>
-              </thead>
               <tbody>
                 {res.rows.map((r) => (
-                  <tr key={r.id} className="border-t border-border">
-                    <td className="px-2 py-2 font-mono"><Link className="text-primary hover:underline" href={`/r/serials.item/${r.id}`}>{String(r.serial)}</Link></td>
-                    <td className="px-2 py-2">{r._refs?.productId ?? '—'}</td>
-                    <td className="px-2 py-2"><StatusBadge status={String(r.status)} /></td>
-                    <td className="px-2 py-2">{r._refs?.warehouseId ?? (r.location as string) ?? '—'}</td>
-                    <td className="px-2 py-2">{(r.holder as string) ?? '—'}</td>
-                    <td className="px-2 py-2">{r._refs?.customerId ?? '—'}</td>
-                    <td className={cx('px-2 py-2')}>{r.warranty.state === 'none' ? '—' : <WarrantyBadge w={r.warranty} until={r.warrantyUntil} />}</td>
+                  <tr key={r.id} className="cursor-pointer border-t border-border hover:bg-muted/40" onClick={() => onOpen(r.id)}>
+                    <td className="px-2 py-1.5 font-mono text-xs">{String(r.serial)}</td><td className="px-2 py-1.5">{itemOf(r)}</td>
+                    <td className="px-2 py-1.5"><StatusBadge status={String(r.status)} /></td><td className="px-2 py-1.5 text-muted-foreground">{whereOf(r)}</td>
+                    <td className="px-2 py-1.5"><WarrantyBadge until={r.warrantyUntil} /></td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </Card>
+        </>
       )}
     </div>
   );
 }
 
-function ExpiringTab() {
-  const [days, setDays] = useState('30');
-  const [rows, setRows] = useState<Rec[] | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  useEffect(() => { setRows(null); setError(null); api<Rec[]>(`serials/warranty/expiring?days=${days}`).then(setRows).catch((e) => { setError(e); setRows([]); }); }, [days]);
-  return (
-    <Card title="Warranties ending soon" actions={<div className="flex gap-2">
-      <Button size="sm" variant="ghost" onClick={() => openDoc(`serials/warranty/expiring?days=${days}&format=csv`)}>CSV</Button>
-      <Button size="sm" variant="ghost" onClick={() => openDoc(`serials/warranty/expiring?days=${days}&format=pdf`)}>PDF</Button>
-      <Select aria-label="Within" value={days} onChange={(e) => setDays(e.target.value)} className="w-40"><option value="30">Next 30 days</option><option value="60">Next 60 days</option><option value="90">Next 90 days</option></Select></div>}>
-      <ErrorBox error={error} />
-      {!rows ? null : !rows.length ? <EmptyState title="No warranties ending in this period" /> : (
-        <ul className="divide-y divide-border text-sm">
-          {rows.map((r) => (
-            <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-              <Link className="font-mono text-primary hover:underline" href={`/r/serials.item/${r.id}`}>{String(r.serial)}</Link>
-              <span className="text-muted-foreground">{r._refs?.productId ?? String(r.itemName ?? '')} · {r._refs?.customerId ?? 'no customer'}{r.holder ? ` · held by ${r.holder}` : ''}</span>
-              <span className="tabular-nums">{String(r.warrantyUntil).slice(0, 10)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}
+const STATUSES = ['in_stock', 'issued', 'demo', 'sold', 'rma', 'out', 'scrapped'];
 
-const STATUSES = ['in_stock', 'issued', 'demo', 'rma', 'sold', 'out', 'scrapped'];
-
-/** Register serials by hand — scan one after another or paste a list; details below apply to all of them. */
-function RegisterTab() {
+/** Register by hand: scan one after another or paste a list; the details apply to all of them. */
+function Register({ onDone }: { onDone(): void }) {
   const [text, setText] = useState('');
   const [f, setF] = useState<Record<string, unknown>>({ status: 'in_stock' });
-  const [res, setRes] = useState<{ created: string[]; existing: string[]; failed: { serial: string; error: string }[] } | null>(null);
+  const [res, setRes] = useState<{ created: string[]; existing: string[]; failed?: { serial: string; error: string }[] } | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v || undefined }));
   const serials = text.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
   const save = async () => {
     setBusy(true); setError(null); setRes(null);
-    try { const r = await api<NonNullable<typeof res>>('serials/register', 'POST', { ...f, serials }); setRes(r); setText(r.failed.map((x) => x.serial).join('\n')); } catch (e) { setError(e); } finally { setBusy(false); }
+    try { const r = await api<NonNullable<typeof res>>('serials/register', 'POST', { ...f, serials }); setRes(r); if (r.created.length) { setText(''); onDone(); } } catch (e) { setError(e); } finally { setBusy(false); }
   };
   const txt = (k: string, label: string, ph?: string) => (
-    <label className="block text-sm"><span className="mb-1 block text-muted-foreground">{label}</span><Input value={String(f[k] ?? '')} placeholder={ph} onChange={(e) => set(k, e.target.value)} /></label>
+    <label className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">{label}</span><Input value={String(f[k] ?? '')} placeholder={ph} onChange={(e) => set(k, e.target.value)} /></label>
   );
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-2">
-      <Card title="Serial numbers">
-        <Textarea rows={10} aria-label="Serial numbers to register" placeholder="Scan or paste serial numbers — one per line, or separated by spaces/commas" value={text} onChange={(e) => setText(e.target.value)} className="font-mono" />
-        <p className="mt-2 text-xs text-muted-foreground">{serials.length} serial(s) · already-registered ones are skipped</p>
-      </Card>
-      <Card title="Details (applied to all)">
+    <div className="grid gap-4 md:grid-cols-2">
+      <div>
+        <Textarea rows={12} aria-label="Serial numbers to register" placeholder="Scan or paste serial numbers — one per line, or separated by spaces/commas" value={text} onChange={(e) => setText(e.target.value)} className="font-mono" />
+        <p className="mt-1 text-xs text-muted-foreground">{serials.length} serial(s) · ones already registered are skipped</p>
+      </div>
+      <div className="space-y-3">
+        <label className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">Inventory product (optional — sets make, model and warranty)</span><RefPicker f={{ name: 'productId', type: 'string', ref: 'inventory.product' }} value={f.productId} onChange={(v) => set('productId', v)} /></label>
         <div className="grid gap-3 sm:grid-cols-2">
-          <label className="block text-sm sm:col-span-2"><span className="mb-1 block text-muted-foreground">Inventory product (optional)</span><RefPicker f={{ name: "productId", type: "string", ref: "inventory.product" }} value={f.productId} onChange={(v) => set('productId', v)} /></label>
-          {txt('itemName', 'Item name', 'e.g. Handheld radio')}
-          {txt('brand', 'Make')}
-          {txt('model', 'Model')}
-          <label className="block text-sm"><span className="mb-1 block text-muted-foreground">Status</span>
-            <Select value={String(f.status ?? '')} onChange={(e) => set('status', e.target.value)}>{STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}</Select></label>
-          {txt('location', 'Location', 'Site, vehicle, rack…')}
-          {txt('holder', 'Held by', 'Person or team')}
-          <label className="block text-sm"><span className="mb-1 block text-muted-foreground">Customer (optional)</span><RefPicker f={{ name: "customerId", type: "string", ref: "sales.customer" }} value={f.customerId} onChange={(v) => set('customerId', v)} /></label>
-          <label className="block text-sm"><span className="mb-1 block text-muted-foreground">Warranty until {f.productId ? '(blank = product warranty from today)' : ''}</span><Input type="date" value={String(f.warrantyUntil ?? '')} onChange={(e) => set('warrantyUntil', e.target.value)} /></label>
-          <label className="block text-sm sm:col-span-2"><span className="mb-1 block text-muted-foreground">Notes</span><Textarea rows={2} value={String(f.notes ?? '')} onChange={(e) => set('notes', e.target.value)} /></label>
+          {txt('itemName', 'Item name', 'e.g. Handheld radio')}{txt('brand', 'Make')}{txt('model', 'Model')}
+          <label className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">Status</span>
+            <Select value={String(f.status ?? '')} onChange={(e) => set('status', e.target.value)}>{STATUSES.map((s) => <option key={s} value={s}>{nice(s)}</option>)}</Select></label>
+          {txt('location', 'Location', 'Site, vehicle, rack…')}{txt('holder', 'Held by', 'Person or team')}
+          <label className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">Customer (optional)</span><RefPicker f={{ name: 'customerId', type: 'string', ref: 'sales.customer' }} value={f.customerId} onChange={(v) => set('customerId', v)} /></label>
+          <label className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">Warranty until</span><Input type="date" value={String(f.warrantyUntil ?? '')} onChange={(e) => set('warrantyUntil', e.target.value)} /></label>
         </div>
-        <div className="mt-4 flex justify-end"><Button disabled={busy || !serials.length} onClick={save}>{busy ? 'Registering…' : `Register ${serials.length || ''}`}</Button></div>
-        <div className="mt-3"><ErrorBox error={error} /></div>
+        <label className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">Notes</span><Textarea rows={2} value={String(f.notes ?? '')} onChange={(e) => set('notes', e.target.value)} /></label>
+        <div className="flex justify-end"><Button disabled={busy || !serials.length} onClick={save}>{busy ? 'Registering…' : `Register ${serials.length || ''}`}</Button></div>
+        <ErrorBox error={error} />
         {res && (
-          <p className="mt-3 text-sm">
-            <span style={{ color: 'var(--tone-green)' }}>{res.created.length} registered.</span>
-            {res.existing.length > 0 && <span className="ms-2 text-muted-foreground">Already registered (skipped): {res.existing.join(', ')}</span>}
-            {res.failed.length > 0 && <span className="mt-1 block" style={{ color: 'var(--tone-red)' }}>{res.failed.length} failed (left in the box to retry): {res.failed.map((x) => `${x.serial} — ${x.error}`).join('; ')}</span>}
-          </p>
+          <div className="space-y-1 text-sm">
+            <p><span style={{ color: 'var(--tone-green)' }}>{res.created.length} registered.</span>
+              {res.existing.length > 0 && <span className="ms-2 text-muted-foreground">Already registered (skipped): {res.existing.join(', ')}</span>}</p>
+            {!!res.failed?.length && <p style={{ color: 'var(--tone-red)' }}>Not saved: {res.failed.map((x) => `${x.serial} (${x.error})`).join(', ')}</p>}
+          </div>
         )}
-      </Card>
-    </div>
-  );
-}
-
-function downloadCsv(name: string, rows: unknown[][]) {
-  const esc = (v: unknown) => { const t = v == null ? '' : String(v); return /[",\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t; };
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob(['\ufeff' + rows.map((r) => r.map(esc).join(',')).join('\n')], { type: 'text/csv' }));
-  a.download = name; a.click(); URL.revokeObjectURL(a.href);
-}
-
-const ACTIONS = [
-  { key: 'issue', label: 'Issue to', when: ['in_stock', 'demo', 'out'] },
-  { key: 'return', label: 'Return to stock', when: ['issued', 'demo', 'rma', 'out'] },
-  { key: 'demo', label: 'Demo out', when: ['in_stock'] },
-  { key: 'rma', label: 'Send for RMA', when: ['in_stock', 'issued', 'demo', 'out'] },
-  { key: 'move', label: 'Move', when: STATUSES },
-  { key: 'scrap', label: 'Scrap', when: ['in_stock', 'rma', 'issued'] },
-];
-
-/** One-click tracking moves; each one lands in the history with its note. */
-function QuickActions({ id, status, onDone }: { id: string; status: string; onDone: () => void }) {
-  const [act, setAct] = useState<string | null>(null);
-  const [f, setF] = useState<Record<string, unknown>>({});
-  const [error, setError] = useState<unknown>(null);
-  const [busy, setBusy] = useState(false);
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (act === 'scrap' && !confirm('Scrap this unit?')) return;
-    setBusy(true); setError(null);
-    try { await api(`serials/${id}/action`, 'POST', { action: act, ...f }); setAct(null); setF({}); onDone(); } catch (err) { setError(err); } finally { setBusy(false); }
-  };
-  const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v || undefined }));
-  return (
-    <div className="space-y-2 border-t border-border pt-3">
-      <div className="flex flex-wrap gap-1.5">
-        {ACTIONS.filter((a) => a.when.includes(status)).map((a) => (
-          <Button key={a.key} size="sm" variant={act === a.key ? 'primary' : 'outline'} onClick={() => { setAct(act === a.key ? null : a.key); setF({}); setError(null); }}>{a.label}</Button>
-        ))}
       </div>
-      {act && (
-        <form onSubmit={submit} className="space-y-2 rounded-md bg-muted p-2">
-          {(act === 'issue' || act === 'demo' || act === 'move') && <>
-            <RefPicker f={{ name: 'employeeId', type: 'string', ref: 'hrm.employee' }} value={f.employeeId} onChange={(v) => set('employeeId', v)} />
-            {!f.employeeId && <Input placeholder={act === 'issue' ? 'or person / team / unit' : 'Held by (optional)'} value={String(f.holder ?? '')} onChange={(e) => set('holder', e.target.value)} />}
-          </>}
-          {act !== 'rma' && act !== 'scrap' && <Input placeholder="Location (site, vehicle, rack…)" value={String(f.location ?? '')} onChange={(e) => set('location', e.target.value)} />}
-          <Input placeholder="Note (optional)" value={String(f.note ?? '')} onChange={(e) => set('note', e.target.value)} />
-          <ErrorBox error={error} />
-          <div className="flex justify-end"><Button size="sm" disabled={busy}>{busy ? 'Saving…' : 'Confirm'}</Button></div>
-        </form>
-      )}
-    </div>
-  );
-}
-
-interface Summary { byStatus: Record<string, number>; expiring: number; recent: { at: string; serial: string; title: string; detail?: string; by?: string }[] }
-
-/** Where everything stands at a glance, plus the latest tracking activity. */
-function OverviewTab() {
-  const [s, setS] = useState<Summary | null>(null);
-  const [error, setError] = useState<unknown>(null);
-  useEffect(() => { api<Summary>('serials/summary').then(setS).catch(setError); }, []);
-  if (error) return <ErrorBox error={error} />;
-  if (!s) return null;
-  const total = Object.values(s.byStatus).reduce((a, b) => a + b, 0);
-  const tiles: [string, number, string?][] = [['Total units', total, '/r/serials.item'], ...STATUSES.map((k): [string, number] => [k.replace(/_/g, ' '), s.byStatus[k] ?? 0]), ['Warranty ending (30d)', s.expiring, '/serials?tab=expiring']];
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        {tiles.map(([label, n, href]) => {
-          const body = <><div className="text-xs capitalize text-muted-foreground">{label}</div><div className="text-2xl font-semibold tabular-nums">{n}</div></>;
-          return href ? <Link key={label} href={href} className="rounded-lg border border-border bg-card p-3 hover:border-primary">{body}</Link> : <div key={label} className="rounded-lg border border-border bg-card p-3">{body}</div>;
-        })}
-      </div>
-      <Card title="Recent activity">
-        {s.recent.length ? (
-          <Timeline items={s.recent.map((e) => ({ at: e.at, title: <Link className="text-primary hover:underline" href={`/serials?tab=lookup&serial=${encodeURIComponent(e.serial)}`}>{e.serial} — {e.title}</Link>, body: [e.detail, e.by && `by ${e.by}`].filter(Boolean).join(' · ') }))} />
-        ) : <EmptyState title="Nothing tracked yet" />}
-      </Card>
     </div>
   );
 }

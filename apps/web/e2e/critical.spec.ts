@@ -373,3 +373,23 @@ test('standard reports: library by module, period presets, table with totals, ex
   await expect(page.locator('tfoot').getByText('Total')).toBeVisible();
   await page.screenshot({ path: 'test-results/standard-reports.png', fullPage: true });
 });
+
+test('serial tracking: register in a dialog, open the unit, issue it, see it on the timeline', async ({ page }) => {
+  const sn = `UI-SN-${run}`;
+  await page.goto('/serials');
+  await page.getByRole('button', { name: 'Register serials' }).click();
+  await page.getByLabel('Serial numbers to register').fill(sn);
+  await page.getByRole('dialog').getByRole('button', { name: /^Register 1/ }).click();
+  await expect(page.getByText('1 registered.')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Scan or search').fill(sn);
+  await page.getByLabel('Scan or search').press('Enter');
+  const panel = page.getByRole('complementary', { name: 'Unit details' });
+  await expect(panel.getByText(sn)).toBeVisible();
+  await panel.getByRole('button', { name: 'Issue to…' }).click();
+  await panel.getByRole('textbox').first().fill('Field team 7');
+  await panel.getByRole('button', { name: 'Save' }).click();
+  await expect(panel.getByText('Issued', { exact: true })).toBeVisible();
+  await expect(panel.getByText(/by Super Admin/).first()).toBeVisible();
+  await page.screenshot({ path: 'test-results/serials.png', fullPage: true });
+});
