@@ -424,7 +424,7 @@ export const RESOURCES: ResourceDef[] = [
           audioOk: { type: 'bool' }, firmwareAfter: { type: 'string' }, pass: { type: 'bool', required: true }, notes: { type: 'text' },
         },
       },
-      { name: 'invoice', label: 'Create invoice', path: 'repair/jobs/:id/invoice', when: ['ready', 'delivered', 'qc', 'in_repair', 'returned_unrepaired', 'not_repairable'], permission: 'repair.invoice.create' },
+      { name: 'invoice', label: 'Create invoice', path: 'repair/jobs/:id/invoice', when: ['approved', 'parts_pending', 'in_repair', 'qc', 'ready', 'delivered', 'returned_unrepaired', 'not_repairable'], permission: 'repair.invoice.create' },
       { name: 'deliver', label: 'Deliver', path: 'repair/jobs/:id/deliver', when: ['ready', 'returned_unrepaired', 'not_repairable', 'declined'], fields: { receivedBy: { type: 'string' } } },
       { name: 'comeback', label: 'Open comeback job', path: 'repair/jobs/:id/comeback', when: ['delivered', 'closed'], fields: { fault: { type: 'text', required: true } }, permission: 'repair.job.create' },
       { name: 'tag', label: 'Print job tag', path: 'print/repair.job/:id?template=label', opens: true, permission: 'repair.job.print' },
@@ -438,6 +438,7 @@ export const RESOURCES: ResourceDef[] = [
     readonly: ['status', 'subtotal', 'tax', 'total', 'version', 'decidedAt'], editableWhen: EDIT_DRAFT, printable: true,
     actions: [
       { name: 'send', label: 'Mark sent to customer', path: 'repair/quotations/:id/send', when: ['draft', 'approved'] },
+      { name: 'invoice', label: 'Create invoice', path: 'repair/quotations/:id/invoice', when: ['accepted'], permission: 'repair.invoice.create' },
       { name: 'decide', label: 'Customer decision', path: 'repair/quotations/:id/decision', when: ['sent', 'approved', 'draft'], fields: { accepted: { type: 'bool', required: true }, via: { type: 'enum', options: ['signature', 'link', 'phone'], required: true } } },
     ],
   },

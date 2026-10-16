@@ -178,7 +178,11 @@ export class RepairController {
       ];
       const stock = await tx.stockLevel.groupBy({ by: ['productId'], _sum: { qty: true }, where: { productId: { in: b.parts.map((p) => p.productId) } } });
       const availability = b.parts.map((p) => ({ productId: p.productId, need: p.qty, onHand: Number(stock.find((s) => s.productId === p.productId)?._sum.qty ?? 0) }));
-      await tx.job.update({ where: { id }, data: { diagnosis: { findings: b.findings, estimatedMin: b.estimatedMin, parts: b.parts, labor: b.labor, by: user.id, at: new Date() } } });
+      // Re-diagnosing keeps the earlier findings: they move into `history`, newest last.
+      const { history = [], ...previous } = (job.diagnosis ?? {}) as { history?: unknown[] } & Record<string, unknown>;
+      const diagnosis = { findings: b.findings, estimatedMin: b.estimatedMin, parts: b.parts, labor: b.labor, by: user.id, byName: user.name, at: new Date().toISOString(), history: previous.findings ? [...history, previous] : history };
+      await tx.job.update({ where: { id }, data: { diagnosis: diagnosis as unknown as Prisma.InputJsonValue } });
+      await tx.comment.create({ data: { companyId: user.companyId, entityType: 'repair.job', entityId: id, userId: user.id, body: `Diagnosis${previous.findings ? ' (revised)' : ''}: ${b.findings}`, internal: true } });
       await tx.quotation.updateMany({ where: { jobId: id, status: { in: ['draft', 'sent', 'approved', 'pending'] } }, data: { status: 'superseded' } });
       const version = (await tx.quotation.count({ where: { jobId: id } })) + 1;
       const t = docTotals(lines);
@@ -454,6 +458,17 @@ export class RepairController {
    * One invoice for every accepted, not-yet-invoiced unit of an intake: lines from the accepted intake quotation,
    * or each unit's own accepted quotation. Cost of parts consumed by all included units is posted to COGS.
    */
+  /** Invoice straight from an accepted quotation: its job's invoice, or the whole intake's. */
+  @Post('repair/quotations/:id/invoice')
+  @Permissions('repair.invoice.create')
+  async quoteInvoice(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const q = await this.prisma.$transaction((tx) => this.resources.load(tx, user, 'repair.quotation', id, 'view'));
+    if (q.status !== 'accepted') throw new BadRequestException('Only an accepted quotation can be invoiced');
+    if (q.jobId) return this.invoice(user, String(q.jobId), {});
+    if (q.intakeId) return this.intakeInvoice(user, String(q.intakeId));
+    throw new BadRequestException('Quotation is not linked to a job or intake');
+  }
+
   @Post('repair/intakes/:id/invoice')
   @Permissions('repair.invoice.create')
   intakeInvoice(@CurrentUser() user: AuthUser, @Param('id') id: string) {

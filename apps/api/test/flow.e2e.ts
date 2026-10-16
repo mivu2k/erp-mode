@@ -158,6 +158,22 @@ test('Repair: intake → diagnose/quote → accept → issue → invoice → pay
   ctx.customer = cust;
 });
 
+test('repair: re-diagnosis keeps the earlier findings; an accepted quotation invoices straight away', async () => {
+  const { jobs } = await call('POST', 'repair/intakes', { customerId: ctx.customer.id, items: [{ productType: 'Handheld radio', brand: 'Motorola', model: 'XPR 3300', fault: 'No power' }] });
+  const jobId = jobs[0].id;
+  await call('POST', `repair/jobs/${jobId}/diagnose`, { findings: 'Battery contacts corroded', labor: [{ serviceId: ctx.labor, qty: 1 }] });
+  const d2 = await call('POST', `repair/jobs/${jobId}/diagnose`, { findings: 'Power board failed too', labor: [{ serviceId: ctx.labor, qty: 2 }] });
+  const diag = (await call('GET', `r/repair.job/${jobId}`)).diagnosis;
+  assert.equal(diag.findings, 'Power board failed too');
+  assert.deepEqual(diag.history.map((h: J) => h.findings), ['Battery contacts corroded'], 'earlier diagnosis kept');
+  await call('POST', `repair/quotations/${d2.quotation.id}/decision`, { accepted: true, via: 'phone' });
+  assert.equal((await call('GET', `r/repair.job/${jobId}`)).status, 'approved');
+  const inv = await call('POST', `repair/quotations/${d2.quotation.id}/invoice`);
+  assert.equal(Number(inv.total), 3000, 'invoice carries the accepted quotation (2 × labour)');
+  assert.equal(inv.jobId, jobId);
+  await assert.rejects(call('POST', `repair/quotations/${d2.quotation.id}/invoice`), /already invoiced/);
+});
+
 test('Gatepass: demo out → partial return → convert rest to sale', async () => {
   const gp = await call('POST', 'r/gatepass.pass', {
     type: 'demo_out', partyName: 'Client Org', customerId: ctx.customer.id, fromWarehouseId: ctx.wh, expectedReturn: '2026-10-01',

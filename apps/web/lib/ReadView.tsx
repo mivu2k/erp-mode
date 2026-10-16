@@ -216,3 +216,25 @@ export function RepairUnit({ jobId }: { jobId: string }): ReactNode {
     </Card>
   );
 }
+
+type Diag = { findings?: string; at?: string; byName?: string; estimatedMin?: number; history?: Diag[] };
+/** A job's diagnoses, newest first: re-diagnosing keeps the earlier findings (server stores them in `history`). */
+export function DiagnosisHistory({ diagnosis }: { diagnosis: unknown }): ReactNode {
+  const d = diagnosis as Diag | null;
+  if (!d?.findings) return null;
+  const all = [d, ...[...(d.history ?? [])].reverse()];
+  return (
+    <Card title="Diagnosis" actions={all.length > 1 ? <span className="text-xs text-muted-foreground">{all.length} diagnoses</span> : undefined}>
+      <ol className="space-y-3">
+        {all.map((x, i) => (
+          <li key={i} className={cx('border-s-2 ps-3', i === 0 ? 'border-primary' : 'border-border opacity-80')}>
+            <div className="text-xs text-muted-foreground">
+              {i === 0 ? 'Current' : 'Earlier'}{x.at ? ` · ${new Date(x.at).toLocaleString()}` : ''}{x.byName ? ` · ${x.byName}` : ''}{x.estimatedMin ? ` · est. ${x.estimatedMin} min` : ''}
+            </div>
+            <p className="whitespace-pre-line text-sm">{x.findings}</p>
+          </li>
+        ))}
+      </ol>
+    </Card>
+  );
+}
