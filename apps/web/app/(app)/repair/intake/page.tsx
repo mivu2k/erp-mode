@@ -153,8 +153,8 @@ export default function IntakePage() {
               <div className="space-y-5">
                 <div className="grid gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-3">
                   <div className="sm:col-span-2 lg:col-span-3">
-                    <Label htmlFor={`serial${i}`}>Serial number</Label>
-                    <Input id={`serial${i}`} value={String(it.serial ?? '')} placeholder="Scan or type — known units fill in automatically" className="font-mono"
+                    <Label htmlFor={`serial${i}`}>Serial number <span className="font-normal text-muted-foreground">(optional)</span></Label>
+                    <Input id={`serial${i}`} value={String(it.serial ?? '')} placeholder="Scan or type, or leave blank — known units fill in automatically" className="font-mono"
                       onChange={(e) => set(i, { serial: e.target.value })} onBlur={(e) => lookupSerial(i, e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); document.getElementById(`type${i}`)?.focus(); } }} />
                     <Err k={`serial${i}`} />
