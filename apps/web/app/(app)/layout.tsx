@@ -208,14 +208,31 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
-/** Ctrl+K global search. USB scanners type + Enter: exact code resolves straight to the record. Camera scan uses the native BarcodeDetector. */
+type Detector = { detect(src: ImageBitmapSource): Promise<{ rawValue: string }[]> };
+/**
+ * The browser's own barcode reader when it has one (Chrome/Android); otherwise the bundled ZXing decoder
+ * (iPhone Safari, Firefox), loaded only when first needed and served from /zxing_reader.wasm so it works offline.
+ */
+async function barcodeDetector(): Promise<Detector> {
+  const Native = (window as unknown as { BarcodeDetector?: new () => Detector }).BarcodeDetector;
+  if (Native) return new Native();
+  const { BarcodeDetector, prepareZXingModule } = await import('barcode-detector/ponyfill');
+  prepareZXingModule({ overrides: { locateFile: (path: string, prefix: string) => (path.endsWith('.wasm') ? '/zxing_reader.wasm' : prefix + path) } });
+  return new BarcodeDetector() as unknown as Detector;
+}
+
+/** Ctrl+K global search. USB scanners type + Enter: exact code resolves straight to the record. Phones scan with the live camera (HTTPS) or a photo (works on plain HTTP too). */
 function SearchDialog({ open, onClose }: { open: boolean; onClose(): void }) {
   const meta = useMeta();
   const router = useRouter();
   const [q, setQ] = useState('');
   const [hits, setHits] = useState<Hit[]>([]);
   const [camera, setCamera] = useState(false);
+  const [note, setNote] = useState('');
   const video = useRef<HTMLVideoElement>(null);
+  const photo = useRef<HTMLInputElement>(null);
+  // Browsers only open the live camera on HTTPS (or localhost); a photo works everywhere.
+  const liveOk = typeof window !== 'undefined' && window.isSecureContext && !!navigator.mediaDevices?.getUserMedia;
   const label = (t: string) => meta.resources.find((r) => r.key === t)?.label ?? t;
   const go = (h: Hit) => { onClose(); setQ(''); router.push(`/r/${h.entityType}/${h.entityId}`); };
 
@@ -228,27 +245,26 @@ function SearchDialog({ open, onClose }: { open: boolean; onClose(): void }) {
   const scan = async (code: string) => {
     const found = await api<Hit[]>(`search/scan?${qs({ code })}`);
     if (found.length === 1) go(found[0]);
-    else setHits(found);
+    else { setHits(found); if (!found.length) setNote(`Nothing found for “${code}”.`); }
   };
 
   useEffect(() => {
     if (!camera || !open) return;
-    const Detector = (window as unknown as { BarcodeDetector?: new (o?: object) => { detect(v: HTMLVideoElement): Promise<{ rawValue: string }[]> } }).BarcodeDetector;
-    if (!Detector) { alert('Camera scanning needs Chrome/Android or the mobile app.'); setCamera(false); return; }
     let stream: MediaStream | null = null;
     let live = true;
-    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }).then(async (s) => {
-      stream = s;
-      if (!video.current) return;
-      video.current.srcObject = s;
+    setNote('');
+    (async () => {
+      const det = await barcodeDetector();
+      stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      if (!video.current || !live) return;
+      video.current.srcObject = stream;
       await video.current.play();
-      const det = new Detector();
       while (live) {
         const codes = await det.detect(video.current).catch(() => []);
         if (codes[0]) { live = false; setCamera(false); await scan(codes[0].rawValue); break; }
         await new Promise((r) => setTimeout(r, 250));
       }
-    }).catch(() => setCamera(false));
+    })().catch(() => { setCamera(false); setNote('Camera not available — use “Photo” instead.'); });
     return () => { live = false; stream?.getTracks().forEach((t) => t.stop()); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [camera, open]);
@@ -257,8 +273,22 @@ function SearchDialog({ open, onClose }: { open: boolean; onClose(): void }) {
     <Dialog open={open} onClose={onClose} title="Search">
       <form onSubmit={(e) => { e.preventDefault(); if (q.trim()) scan(q.trim()); }} className="flex gap-2">
         <Input autoFocus placeholder="Name, number, serial, IMEI, SKU, plate… or scan" value={q} onChange={(e) => setQ(e.target.value)} />
-        <Button type="button" variant="outline" onClick={() => setCamera((c) => !c)} aria-label="Scan with camera">📷</Button>
+        {liveOk && <Button type="button" variant="outline" onClick={() => setCamera((c) => !c)} aria-label="Scan with camera" title="Live camera">📷</Button>}
+        <Button type="button" variant="outline" onClick={() => photo.current?.click()} aria-label="Scan from a photo" title="Take a photo of the code">Photo</Button>
       </form>
+      {/* Photo scan: the phone opens its camera app; the picture is decoded here, nothing is uploaded. */}
+      <input ref={photo} type="file" accept="image/*" capture="environment" className="sr-only" aria-hidden="true" tabIndex={-1} onChange={async (e) => {
+        const f = e.target.files?.[0];
+        e.target.value = '';
+        if (!f) return;
+        setNote('Reading code…');
+        try {
+          const codes = await (await barcodeDetector()).detect(await createImageBitmap(f));
+          if (codes[0]) { setNote(''); setQ(codes[0].rawValue); await scan(codes[0].rawValue); } else setNote('No barcode or QR code found — get closer and keep it sharp.');
+        } catch { setNote('Could not read that picture.'); }
+      }} />
+      {!liveOk && <p className="mt-2 text-xs text-muted-foreground">Live camera scanning needs HTTPS; use “Photo” to scan with the phone camera.</p>}
+      {note && <p className="mt-2 text-sm text-muted-foreground" role="status">{note}</p>}
       {camera && <video ref={video} className="mt-3 w-full rounded" muted playsInline />}
       <ul className="mt-3 divide-y divide-border">
         {hits.map((h) => (

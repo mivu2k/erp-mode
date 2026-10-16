@@ -11,3 +11,4 @@ next-env.d.ts
 apps/mobile/android
 apps/mobile/ios
 uploads
+apps/web/public/zxing_reader.wasm

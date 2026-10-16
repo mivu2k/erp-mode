@@ -393,3 +393,20 @@ test('serial tracking: register in a dialog, open the unit, issue it, see it on 
   await expect(panel.getByText(/by Super Admin/).first()).toBeVisible();
   await page.screenshot({ path: 'test-results/serials.png', fullPage: true });
 });
+
+test('search: scanning a barcode from a photo opens the record (no built-in reader, no HTTPS needed)', async ({ page, request, browser }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const job = (await (await request.get('/api/r/repair.job?pageSize=1', { headers: auth })).json()).rows[0];
+  // "Photograph" the job's printed barcode label: render it large and screenshot it as a PNG.
+  const label = (await (await request.get(`/api/print/repair.job/${job.id}?template=label`, { headers: auth })).text()).replace(/<script[\s\S]*?<\/script>/g, '');
+  const cam = await browser.newPage();
+  await cam.setContent(label.replace('svg{width:46mm;height:14mm}', 'svg{width:700px;height:200px}body{padding:40px;background:#fff}'));
+  const png = await cam.locator('svg').first().screenshot();
+  await cam.close();
+
+  await page.goto('/');
+  await page.getByRole('button', { name: /Search or scan/ }).click();
+  await page.locator('input[type=file][capture]').setInputFiles({ name: 'code.png', mimeType: 'image/png', buffer: png });
+  await expect(page).toHaveURL(new RegExp(`/r/repair.job/${job.id}`), { timeout: 15_000 });
+});
