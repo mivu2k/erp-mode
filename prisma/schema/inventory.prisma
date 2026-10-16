@@ -130,6 +130,8 @@ model SerialItem {
   /// Free-text whereabouts when not in a warehouse (site, vehicle, rack…) and who holds it
   location      String?
   holder        String?
+  /// Set when issued to an employee (holder keeps the name for history)
+  employeeId    String?
   warehouseId   String?
   status        String    @default("in_stock") // in_stock | issued | sold | demo | rma | scrapped | out
   /// Where it came from (set on goods receipt)
@@ -148,6 +150,7 @@ model SerialItem {
   @@index([productId])
   @@index([customerId])
   @@index([warrantyUntil])
+  @@index([employeeId])
 }
 
 /// Stock adjustments & transfers go through workflow before posting.

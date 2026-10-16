@@ -1,4 +1,4 @@
-import { Body, Controller, Get, NotFoundException, Param, Post, Query, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, NotFoundException, Param, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { z } from 'zod';
 import { sendReport } from '../engine/export';
@@ -10,6 +10,7 @@ import { SettingsService } from '../platform/settings.service';
 import { assertCan, AuthUser, can, CurrentUser, Permissions } from '../rbac/rbac';
 
 const DAY = 86_400_000;
+export const STATUSES = ['in_stock', 'issued', 'demo', 'rma', 'sold', 'out', 'scrapped'] as const;
 
 /** Warranty state of a unit on a given day. */
 export function warrantyStatus(until: Date | null | undefined, now = new Date()): { state: 'none' | 'active' | 'expiring' | 'expired'; daysLeft: number | null } {
@@ -23,7 +24,7 @@ export function warrantyEnd(soldAt: Date, months: number): Date {
   return new Date(Date.UTC(soldAt.getUTCFullYear(), soldAt.getUTCMonth() + months, soldAt.getUTCDate()));
 }
 
-export interface SerialEvent { at: Date; kind: string; title: string; detail?: string; link?: string }
+export interface SerialEvent { at: Date; kind: string; title: string; detail?: string; link?: string; by?: string }
 
 const TRACKED: [string, string][] = [['status', 'Status'], ['location', 'Location'], ['holder', 'Holder'], ['customerId', 'Customer'], ['warrantyUntil', 'Warranty until']];
 const show = (v: unknown) => (v instanceof Date ? v.toISOString().slice(0, 10) : v == null || v === '' ? '—' : String(v).replace(/_/g, ' '));
@@ -36,7 +37,7 @@ const trackDetail = (r: Record<string, unknown>) => [r.itemName, [r.brand, r.mod
 const registerSchema = z.object({
   serials: z.array(z.string().trim().min(1).max(191)).min(1).max(1000),
   productId: z.string().optional(), itemName: z.string().max(191).optional(), brand: z.string().max(191).optional(), model: z.string().max(191).optional(),
-  status: z.string().optional(), location: z.string().max(191).optional(), holder: z.string().max(191).optional(),
+  status: z.enum(STATUSES).optional(), location: z.string().max(191).optional(), holder: z.string().max(191).optional(),
   customerId: z.string().optional(), warrantyUntil: z.string().optional(), notes: z.string().optional(),
 });
 
@@ -50,11 +51,18 @@ const MOVE_LABEL: Record<string, string> = {
 export class SerialsController {
   constructor(private prisma: PrismaService, private resources: ResourceService, private settings: SettingsService, hooks: HooksService) {
     // Manual tracking: every hand-entered change to status / whereabouts / holder lands in the serial's history.
+    const checkStatus = (_: unknown, data: Record<string, unknown>) => {
+      if (data.status != null && !(STATUSES as readonly string[]).includes(String(data.status))) throw new BadRequestException(`Unknown status "${data.status}"`);
+    };
     hooks.on('serials.item', {
+      beforeCreate: checkStatus,
+      beforeUpdate: checkStatus,
       afterCreate: async ({ tx, user }, rec) => { await tx.serialEvent.create({ data: { companyId: user.companyId, serialItemId: String(rec.id), serial: String(rec.serial), userId: user.id, title: 'Registered', detail: trackDetail(rec) } }); },
-      afterUpdate: async ({ tx, user }, rec, before) => {
-        const detail = trackChanges(before, rec);
-        if (detail) await tx.serialEvent.create({ data: { companyId: user.companyId, serialItemId: String(rec.id), serial: String(rec.serial), userId: user.id, title: 'Tracking updated', detail } });
+      afterUpdate: async ({ tx, user, body }, rec, before) => {
+        // Quick actions (POST serials/:id/action) pass their label and note through the raw body.
+        const note = typeof body?._note === 'string' ? body._note.trim() : '';
+        const detail = [trackChanges(before, rec), note].filter(Boolean).join(' · ');
+        if (detail) await tx.serialEvent.create({ data: { companyId: user.companyId, serialItemId: String(rec.id), serial: String(rec.serial), userId: user.id, title: typeof body?._title === 'string' ? body._title : 'Tracking updated', detail } });
       },
     });
   }
@@ -67,12 +75,14 @@ export class SerialsController {
     const serials = [...new Set(b.serials)];
     const existing = new Set((await this.prisma.serialItem.findMany({ where: { companyId: user.companyId, serial: { in: serials } }, select: { serial: true } })).map((s) => s.serial));
     const { serials: _s, ...shared } = b;
+    if (b.productId && !b.warrantyUntil) shared.warrantyUntil = warrantyEnd(new Date(), await this.warrantyMonths(this.prisma, user.companyId, b.productId)).toISOString().slice(0, 10);
     const created: string[] = [];
+    const failed: { serial: string; error: string }[] = [];
+    // ponytail: one transaction per serial (resource create owns its tx); failures are reported, not rolled back.
     for (const serial of serials.filter((s) => !existing.has(s))) {
-      await this.resources.create(user, 'serials.item', { ...shared, serial });
-      created.push(serial);
+      try { await this.resources.create(user, 'serials.item', { ...shared, serial }); created.push(serial); } catch (e) { failed.push({ serial, error: e instanceof Error ? e.message : String(e) }); }
     }
-    return { created, existing: [...existing] };
+    return { created, existing: [...existing], failed };
   }
 
   /** Warranty months for a product (its own, else the company default). */
@@ -116,8 +126,53 @@ export class SerialsController {
     for (const j of jobs) {
       events.push({ at: j.createdAt, kind: 'repair', title: `Repair job ${j.number}`, detail: [j.fault, j.status, j.warranty ? 'under warranty' : null].filter(Boolean).join(' · '), link: `/r/${j.kind === 'fleet' ? 'fleet.maintenance' : 'repair.job'}/${j.id}` });
     }
-    for (const m of manual) events.push({ at: m.at, kind: 'track', title: m.title, detail: m.detail ?? undefined });
+    const names = await this.userNames(manual.map((m) => m.userId));
+    for (const m of manual) events.push({ at: m.at, kind: 'track', title: m.title, detail: m.detail ?? undefined, by: m.userId ? names.get(m.userId) : undefined });
     return events.sort((a, b) => +a.at - +b.at);
+  }
+
+  /** One-click tracking moves; each lands in history with its label and note. */
+  @Post(':id/action')
+  @Permissions('serials.item.update')
+  async action(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
+    const b = parse(z.object({ action: z.enum(['issue', 'return', 'demo', 'rma', 'scrap', 'move']), employeeId: z.string().optional(), holder: z.string().max(191).optional(), location: z.string().max(191).optional(), note: z.string().max(2000).optional() }), body);
+    const emp = b.employeeId ? await this.prisma.employee.findFirst({ where: { id: b.employeeId, companyId: user.companyId }, select: { id: true, name: true } }) : null;
+    if (b.employeeId && !emp) throw new BadRequestException('Employee not found');
+    const holder = emp?.name ?? b.holder;
+    if (b.action === 'issue' && !holder) throw new BadRequestException('Pick who it is issued to');
+    const patch: Record<string, unknown> = {
+      issue: { status: 'issued', employeeId: emp?.id ?? null, holder, ...(b.location ? { location: b.location } : {}) },
+      return: { status: 'in_stock', employeeId: null, holder: null, ...(b.location ? { location: b.location } : {}) },
+      demo: { status: 'demo', holder: holder ?? null, ...(b.location ? { location: b.location } : {}) },
+      rma: { status: 'rma' },
+      scrap: { status: 'scrapped', employeeId: null, holder: null },
+      move: { location: b.location ?? null, ...(holder !== undefined ? { holder, employeeId: emp?.id ?? null } : {}) },
+    }[b.action];
+    const title = { issue: 'Issued', return: 'Returned to stock', demo: 'Out on demo', rma: 'Sent for RMA', scrap: 'Scrapped', move: 'Moved' }[b.action];
+    return this.resources.update(user, 'serials.item', id, { ...patch, _title: title, _note: b.note });
+  }
+
+  /** Landing numbers: units per status, warranties ending in 30 days, latest tracking events. */
+  @Get('summary')
+  @Permissions('serials.item.view')
+  async summary(@CurrentUser() user: AuthUser) {
+    const c = user.companyId;
+    const [byStatus, expiring, recent] = await Promise.all([
+      this.prisma.serialItem.groupBy({ by: ['status'], where: { companyId: c }, _count: true }),
+      this.prisma.serialItem.count({ where: { companyId: c, warrantyUntil: { gte: new Date(Date.now() - DAY), lte: new Date(Date.now() + 30 * DAY) } } }),
+      this.prisma.serialEvent.findMany({ where: { companyId: c }, orderBy: { at: 'desc' }, take: 15 }),
+    ]);
+    const names = await this.userNames(recent.map((e) => e.userId));
+    return {
+      byStatus: Object.fromEntries(byStatus.map((g) => [g.status, g._count])),
+      expiring,
+      recent: recent.map((e) => ({ at: e.at, serial: e.serial, serialItemId: e.serialItemId, title: e.title, detail: e.detail, by: e.userId ? names.get(e.userId) : undefined })),
+    };
+  }
+
+  private async userNames(ids: (string | null)[]) {
+    const users = await this.prisma.user.findMany({ where: { id: { in: [...new Set(ids.filter((x): x is string => !!x))] } }, select: { id: true, name: true } });
+    return new Map(users.map((u) => [u.id, u.name]));
   }
 
   /** Scan / type a serial: the unit, where it is, its warranty and full history. Also matches repair-only serials and asset tags. */
@@ -142,8 +197,8 @@ export class SerialsController {
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: user.companyId } });
     const w = warrantyStatus(rec.warrantyUntil as Date | null);
     return sendReport(res, format ?? 'html', {
-      title: `Serial ${rec.serial}`, company, columns: ['date', 'event', 'detail'],
-      rows: events.map((e) => ({ date: e.at.toISOString().slice(0, 16).replace('T', ' '), event: e.title, detail: e.detail ?? '' })),
+      title: `Serial ${rec.serial}`, company, columns: ['date', 'event', 'detail', 'by'],
+      rows: events.map((e) => ({ date: e.at.toISOString().slice(0, 16).replace('T', ' '), event: e.title, detail: e.detail ?? '', by: e.by ?? '' })),
       fields: [['Product', (rec._refs as Record<string, unknown> | undefined)?.productId ?? ''], ['Status', String(rec.status).replace(/_/g, ' ')], ['Warranty', w.state === 'none' ? '—' : `${w.state} (${String(rec.warrantyUntil).slice(0, 10)})`]],
     });
   }
@@ -165,12 +220,20 @@ export class SerialsController {
 
   /** Units whose warranty ends within N days (for follow-up / renewals). */
   @Get('warranty/expiring')
-  async expiring(@CurrentUser() user: AuthUser, @Query('days') days = '30') {
+  async expiring(@CurrentUser() user: AuthUser, @Query('days') days = '30', @Query('format') format: string | undefined, @Res({ passthrough: true }) res: Response) {
     assertCan(user, 'serials.item.view');
-    const until = new Date(Date.now() + Number(days) * DAY);
+    const n = Number(days);
+    if (!Number.isInteger(n) || n < 1 || n > 365) throw new BadRequestException('days must be 1–365');
+    const until = new Date(Date.now() + n * DAY);
     const rows = await this.prisma.serialItem.findMany({ where: { companyId: user.companyId, warrantyUntil: { gte: new Date(Date.now() - DAY), lte: until } }, orderBy: { warrantyUntil: 'asc' }, take: 500 });
     const out = rows.map((r) => ({ ...r })) as unknown as Record<string, unknown>[];
     await this.resources.attachRefs(this.prisma, user, this.resources.meta('serials.item'), out);
-    return out;
+    if (!format) return out;
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: user.companyId } });
+    const refs = (r: Record<string, unknown>) => (r._refs ?? {}) as Record<string, string | null>;
+    await sendReport(res, format, {
+      title: `Warranties ending in ${n} days`, company, columns: ['serial', 'product', 'customer', 'holder', 'warrantyUntil'],
+      rows: out.map((r) => ({ serial: r.serial, product: refs(r).productId ?? r.itemName ?? '', customer: refs(r).customerId ?? '', holder: r.holder ?? '', warrantyUntil: String(r.warrantyUntil).slice(0, 10) })),
+    });
   }
 }
