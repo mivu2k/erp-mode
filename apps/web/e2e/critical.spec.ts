@@ -164,16 +164,21 @@ test('logo upload shows in sidebar; product image gallery', async ({ page, reque
   await page.getByRole('button', { name: 'Save & apply' }).click();
   await expect(page.locator('aside img').first()).toHaveAttribute('src', /^data:image\/png;base64,/);
 
-  await page.goto('/r/inventory.product/new');
-  await page.getByRole('textbox', { name: 'Sku', exact: true }).fill(`GAL-${run}`);
+  await page.goto('/r/inventory.product/new'); // the generic address hands over to the product screen
+  await expect(page).toHaveURL(/\/inventory\/products\/new/);
+  await page.getByRole('textbox', { name: 'SKU / item code', exact: true }).fill(`GAL-${run}`);
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(`Gallery ${run}`);
-  await page.getByRole('button', { name: 'Create' }).click();
+  await page.getByLabel('Add barcode').fill(`ALT-${run}`);
+  await page.getByLabel('Add barcode').press('Enter');
+  await page.getByRole('button', { name: 'Create product' }).click();
   await expect(page.getByRole('heading', { name: `Gallery ${run}` })).toBeVisible();
+  await expect(page.getByText(`ALT-${run}`)).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Stock' })).toBeVisible();
   await page.getByLabel('Upload Images').setInputFiles([{ name: '1.png', mimeType: 'image/png', buffer: png }, { name: '2.png', mimeType: 'image/png', buffer: png }]);
   await expect(page.getByRole('img', { name: 'Images 2' })).toBeVisible();
   await expect(page.getByText('Main', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText('Unsaved changes')).toBeHidden();
+  await page.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText('Saved.')).toBeVisible();
 
   } finally {
     const res = await request.patch(`/api/r/core.company/${company.id}`, { headers: auth, data: { branding: company.branding } });
@@ -436,6 +441,6 @@ test('search: an unknown barcode offers to create the product with it', async ({
   await box.fill(code);
   await box.press('Enter');
   await page.getByRole('button', { name: `Create product with barcode ${code}` }).click();
-  await expect(page).toHaveURL(/\/r\/inventory\.product\/new/);
+  await expect(page).toHaveURL(/\/inventory\/products\/new/);
   await expect(page.getByLabel('Barcode', { exact: true })).toHaveValue(code);
 });

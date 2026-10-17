@@ -295,7 +295,7 @@ export const RESOURCES: ResourceDef[] = [
   // ─── Inventory ─────────────────────────────────────────────
   {
     key: 'inventory.product', model: 'Product', label: 'Products', title: 'name', subtitle: 'sku', list: ['sku', 'name', 'categoryId', 'brand', 'price', 'reorderLevel', 'isActive'],
-    search: ['sku', 'barcode', 'barcodes', 'name', 'brand', 'model'], barcode: 'barcode', refs: { categoryId: 'core.masterdata', unitId: 'core.masterdata', taxId: 'core.masterdata' },
+    search: ['sku', 'barcode', 'barcodes', 'name', 'brand', 'model'], barcode: 'barcode', createPath: '/inventory/products/new', refs: { categoryId: 'core.masterdata', unitId: 'core.masterdata', taxId: 'core.masterdata' },
     restricted: ['cost'], readonly: ['cost'], printable: true,
     actions: [{ name: 'label', label: 'Print label', path: 'print/inventory.product/:id?template=label', opens: true, permission: 'inventory.product.print' }],
   },

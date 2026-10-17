@@ -46,6 +46,9 @@ export default function RecordPage() {
     : f.type === 'files' ? <FilesField f={f} value={v} onChange={onChange} entityType={key} entityId={isNew ? null : id} />
     : refPicker(f, v, onChange, refs);
 
+  // Products have their own screen (structured form, barcodes, stock); keep any prefill query (?barcode=…).
+  useEffect(() => { if (key === 'inventory.product') router.replace(`/inventory/products/${id}${search.toString() ? `?${search}` : ''}`); }, [key, id, router, search]);
+
   const load = useCallback(() => {
     if (isNew) return;
     api<Rec>(`r/${key}/${id}`).then((d) => { setRec(d); setValues(d); }).catch(setError);
