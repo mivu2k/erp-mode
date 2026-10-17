@@ -179,6 +179,9 @@ test('logo upload shows in sidebar; product image gallery', async ({ page, reque
   await expect(page.getByText('Main', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByText('Saved.')).toBeVisible();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: 'Delete' }).click();
+  await expect(page).toHaveURL(/\/r\/inventory\.product$/);
 
   } finally {
     const res = await request.patch(`/api/r/core.company/${company.id}`, { headers: auth, data: { branding: company.branding } });

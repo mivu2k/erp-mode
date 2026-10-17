@@ -107,6 +107,11 @@ export default function ProductPage() {
         subtitle={isNew ? 'Name and SKU are required; everything else can be added later' : [rec.sku, rec._refs?.categoryId, [rec.brand, rec.model].filter(Boolean).join(' ')].filter((x) => x && x !== '—').join(' · ')}
         actions={<div className="flex flex-wrap gap-2">
           {!isNew && can(meta, 'inventory.product.print') && <Button variant="outline" onClick={() => openDoc(`print/${KEY}/${id}?template=label`).catch(setError)}>Print label</Button>}
+          {!isNew && r.can.delete && <Button variant="ghost" onClick={async () => {
+            // Soft delete: the product leaves lists and pickers; its stock history stays.
+            if (!confirm(`Delete ${rec.name}? It disappears from lists and pickers; its stock history is kept.`)) return;
+            try { await api(`r/${KEY}/${id}`, 'DELETE'); router.replace('/r/inventory.product'); } catch (e) { setError(e); }
+          }}>Delete</Button>}
           {canEdit && <Button disabled={busy || missing} onClick={save}>{busy ? 'Saving…' : isNew ? 'Create product' : 'Save changes'}</Button>}
         </div>} />
       <ErrorBox error={error} />
