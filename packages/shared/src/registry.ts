@@ -325,6 +325,12 @@ export const RESOURCES: ResourceDef[] = [
   {
     key: 'sales.customer', model: 'Customer', label: 'Customers', title: 'name', subtitle: 'phone', list: ['code', 'name', 'phone', 'email', 'creditLimit'], search: ['code', 'name', 'phone', 'email', 'taxId'],
     number: { field: 'code', docType: 'CUS', pattern: 'C{SEQ:5}' }, group: 'repair',
+    // What this customer has: items sold to them (sale-out gatepasses), their invoices and the serial-numbered units they own.
+    related: [
+      { resource: 'gatepass.pass', field: 'customerId', label: 'Gatepasses / sales', columns: ['number', 'type', 'status', 'createdAt'] },
+      { resource: 'repair.invoice', field: 'customerId', label: 'Invoices', columns: ['number', 'date', 'total', 'paid', 'status'] },
+      { resource: 'serials.item', field: 'customerId', label: 'Units they own', columns: ['serial', 'itemName', 'status', 'warrantyUntil'] },
+    ],
     actions: [{ name: 'statement', label: 'Ledger', path: 'finance/statement/customer/:id', opens: true, permission: 'finance.statement.view' }],
   },
   {
@@ -634,7 +640,7 @@ const ENUMS: Record<string, Record<string, string[]>> = {
   'sales.customer': { kind: ['individual', 'company'] },
   'fleet.vehicle': { ownership: ['owned', 'leased', 'rented'], status: ['active', 'in_maintenance', 'inactive', 'sold'], fuelType: ['petrol', 'diesel', 'cng', 'hybrid', 'electric'] },
   'fleet.event': { type: ['tyre', 'battery', 'accident', 'fine', 'insurance', 'tax', 'other'] },
-  'gatepass.pass': { type: ['outward_returnable', 'outward_non_returnable', 'inward', 'demo_out', 'repair_out', 'transfer'] },
+  'gatepass.pass': { type: ['sale_out', 'outward_returnable', 'outward_non_returnable', 'inward', 'demo_out', 'repair_out', 'transfer'] },
   'core.customfield': { type: ['string', 'number', 'date', 'bool', 'enum', 'file'] },
   'core.template': { kind: ['print', 'notification'] },
   'core.sequence': { reset: ['never', 'yearly', 'monthly'] },

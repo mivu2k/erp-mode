@@ -250,6 +250,31 @@ test('spare parts: own kind and list; issue parts defaults to the Workshop store
   assert.equal(Number((await list('inventory.stock', { productId: part.id, warehouseId: ws.id }))[0].qty), 3, 'taken from the Workshop store');
 });
 
+test('sale out: a gatepass sells from the store, invoices the customer and records who owns each serial', async () => {
+  const plain = await call('POST', 'r/inventory.product', { sku: `SO-P-${run}`, name: 'Antenna kit', price: '1200' });
+  const radio = await call('POST', 'r/inventory.product', { sku: `SO-S-${run}`, name: 'Radio unit', price: '50000', serialized: true, warrantyMonths: 12 });
+  const sn = `SALE-SN-${run}`;
+  const adj = await call('POST', 'r/inventory.adjustment', { kind: 'count', warehouseId: ctx.wh, lines: [{ productId: plain.id, qty: 5, unitCost: 700 }, { productId: radio.id, qty: 1, serial: sn, unitCost: 30000 }] });
+  await approveAll('inventory.adjustment', adj.id);
+  await call('POST', `inventory/adjustments/${adj.id}/post`);
+  await assert.rejects(call('POST', 'r/gatepass.pass', { type: 'sale_out', partyName: 'x', fromWarehouseId: ctx.wh, lines: [{ productId: plain.id, qty: 1 }] }), /customer/);
+  const gp = await call('POST', 'r/gatepass.pass', { type: 'sale_out', partyName: ctx.customer.name, customerId: ctx.customer.id, fromWarehouseId: ctx.wh,
+    lines: [{ productId: plain.id, qty: 2 }, { productId: radio.id, serial: sn, qty: 1, price: 48000 }] });
+  assert.deepEqual(gp.lines.map((l: J) => Number(l.price)), [1200, 48000], 'blank price takes the product price');
+  await approveAll('gatepass.pass', gp.id);
+  const out = await call('POST', `gatepass/${gp.id}/check`, { direction: 'out' });
+  const inv = await call('GET', `r/repair.invoice/${out.invoiceId}`);
+  assert.equal(Number(inv.total), 2 * 1200 + 48000);
+  assert.equal(inv.customerId, ctx.customer.id);
+  assert.equal((await call('GET', `r/gatepass.pass/${gp.id}`)).status, 'converted');
+  assert.equal(Number((await list('inventory.stock', { productId: plain.id, warehouseId: ctx.wh }))[0].qty), 3);
+  const unit = (await list('serials.item', { serial: sn }))[0];
+  assert.deepEqual([unit.status, unit.customerId], ['sold', ctx.customer.id], 'the serial is recorded as sold to the customer');
+  assert.ok(unit.warrantyUntil, 'warranty from the product');
+  const look = await call('GET', `repair/intake-lookup?serial=${sn}`);
+  assert.equal(look.customer.id, ctx.customer.id, 'repair intake knows whose unit it is');
+});
+
 test('Gatepass: demo out → partial return → convert rest to sale', async () => {
   const gp = await call('POST', 'r/gatepass.pass', {
     type: 'demo_out', partyName: 'Client Org', customerId: ctx.customer.id, fromWarehouseId: ctx.wh, expectedReturn: '2026-10-01',

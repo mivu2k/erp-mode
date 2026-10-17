@@ -52,10 +52,18 @@ export class FleetGatepassController {
         await tx.fuelLog.update({ where: { id: String(r.id) }, data: { claimId: claim.id } });
       },
     });
-    const lines = z.array(z.object({ productId: z.string().nullish(), serial: z.string().nullish(), description: z.string().nullish(), qty: z.coerce.number().positive() })).min(1);
+    const lines = z.array(z.object({ productId: z.string().nullish(), serial: z.string().nullish(), description: z.string().nullish(), qty: z.coerce.number().positive(), price: z.coerce.number().min(0).nullish() })).min(1);
     hooks.on('gatepass.pass', {
-      beforeCreate: (_c, d) => {
-        parse(lines, d.lines);
+      beforeCreate: async ({ tx, user }, d) => {
+        const ls = parse(lines, d.lines);
+        // Sale out: a customer, a store to sell from, and products only; a blank price takes the product's.
+        if (d.type === 'sale_out') {
+          if (!d.customerId) throw new BadRequestException('Pick the customer the items are sold to');
+          if (!d.fromWarehouseId) throw new BadRequestException('Pick the store the items leave from');
+          if (ls.some((l) => !l.productId)) throw new BadRequestException('Every line of a sale needs a product');
+          const prices = new Map((await tx.product.findMany({ where: { id: { in: ls.map((l) => l.productId!) }, companyId: user.companyId }, select: { id: true, price: true } })).map((p) => [p.id, Number(p.price)]));
+          d.lines = (d.lines as Row[]).map((l) => ({ ...l, price: l.price ?? prices.get(String(l.productId)) ?? 0 }));
+        }
         if (['demo_out', 'outward_returnable', 'repair_out'].includes(String(d.type)) && !d.expectedReturn) throw new BadRequestException('Expected return date is required');
         if (['demo_out', 'transfer', 'repair_out'].includes(String(d.type)) && !d.fromWarehouseId) throw new BadRequestException('Source warehouse is required');
       },
@@ -173,6 +181,13 @@ export class FleetGatepassController {
         }
       };
 
+      if (b.direction === 'out' && type === 'sale_out') {
+        if (gp.status !== 'approved') throw new BadRequestException('Gatepass must be approved');
+        const invoice = await this.sell(tx, user, gp, gl);
+        await this.resources.setStatus(tx, user, 'gatepass.pass', id, 'converted', { checkedOutAt: new Date() });
+        await tx.gateCheck.create({ data: { companyId: user.companyId, gatepassId: id, direction: 'out', guardId: user.id, photoId: b.photoId, notes: b.notes } });
+        return { ok: true, invoiceId: invoice.id, invoiceNumber: invoice.number };
+      }
       if (b.direction === 'out') {
         if (gp.status !== 'approved') throw new BadRequestException('Gatepass must be approved');
         for (const l of gl) await moves(l, Number(l.qty), -1);
@@ -198,6 +213,30 @@ export class FleetGatepassController {
       await tx.gateCheck.create({ data: { companyId: user.companyId, gatepassId: id, direction: b.direction, guardId: user.id, photoId: b.photoId, notes: b.notes } });
       return { ok: true };
     });
+  }
+
+  /**
+   * Sale out leaves the gate: stock goes out of the store as a sale, each serial is recorded as sold to the
+   * customer (with warranty from the product), and one invoice is raised at the gatepass prices with its cost of goods.
+   */
+  private async sell(tx: Parameters<Parameters<PrismaService['$transaction']>[0]>[0], user: AuthUser, gp: Row, gl: { id: string; productId: string | null; serial: string | null; qty: unknown; price: unknown }[]) {
+    const customerId = String(gp.customerId);
+    const invLines = [];
+    let cogs = 0;
+    for (const l of gl) {
+      if (!l.productId) throw new BadRequestException('Every line of a sale needs a product');
+      const p = await tx.product.findUniqueOrThrow({ where: { id: l.productId } });
+      const qty = Number(l.qty);
+      const cost = await this.stock.move(tx, { companyId: user.companyId, productId: l.productId, warehouseId: String(gp.fromWarehouseId), qty: -qty, serial: l.serial, type: 'sale', refType: 'gatepass.pass', refId: String(gp.id), userId: user.id, serialStatus: 'sold' });
+      cogs += Math.round(qty * toMinor(cost));
+      await tx.gatepassLine.update({ where: { id: l.id }, data: { soldQty: qty } });
+      if (l.serial) {
+        const soldAt = new Date();
+        await tx.serialItem.updateMany({ where: { companyId: user.companyId, serial: l.serial }, data: { customerId, soldAt, holder: null, warrantyUntil: warrantyEnd(soldAt, await this.serials.warrantyMonths(tx, user.companyId, l.productId)) } });
+      }
+      invLines.push({ kind: 'part' as const, refId: p.id, description: `${p.name}${l.serial ? ` (S/N ${l.serial})` : ''}`, qty, price: l.price != null ? Number(l.price) : Number(p.price), taxRate: 0 });
+    }
+    return this.repair.createInvoice(tx, user, { customerId, lines: invLines, discount: 0, cogsValue: cogs });
   }
 
   private async refreshStatus(tx: Parameters<Parameters<PrismaService['$transaction']>[0]>[0], user: AuthUser, id: string) {

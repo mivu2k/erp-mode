@@ -362,8 +362,10 @@ function ActionDialog({ action, id, rec, resource, onClose, onDone }: { action: 
     try {
       const body = { ...values };
       for (const [name, f] of lineFields) body[name] = cleanRows((values[name] as Rec[]) ?? [], f.columns ?? {});
-      const res = await api<{ reference?: string; paid?: number; outstanding?: number } | undefined>(action.path.replace(':id', id), 'POST', body);
+      const res = await api<{ reference?: string; paid?: number; outstanding?: number; invoiceId?: string } | undefined>(action.path.replace(':id', id), 'POST', body);
       if (res?.reference) alert(`${res.reference}: ${res.paid?.toLocaleString()} received. Outstanding: ${res.outstanding?.toLocaleString()}`);
+      // An action that raised an invoice (e.g. a sale-out gatepass leaving the gate) goes straight to it, ready for payment.
+      if (res?.invoiceId) { location.href = `/r/repair.invoice/${res.invoiceId}`; return; }
       onDone();
     } catch (e) { setError(e); } finally { setBusy(false); }
   };

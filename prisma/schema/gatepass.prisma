@@ -38,6 +38,8 @@ model GatepassLine {
   qty         Decimal  @db.Decimal(18, 3)
   returnedQty Decimal  @default(0) @db.Decimal(18, 3)
   soldQty     Decimal  @default(0) @db.Decimal(18, 3)
+  /// Sale out: unit price charged (defaults to the product's price)
+  price       Decimal? @db.Decimal(18, 2)
   condition   String? // ok | damaged | missing_accessories
 
   @@index([gatepassId])
