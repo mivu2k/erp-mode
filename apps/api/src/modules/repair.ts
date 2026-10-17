@@ -603,11 +603,48 @@ export class RepairController {
    * Pick-lists for the intake form, readable by anyone who takes equipment in (technicians can't browse master data):
    * equipment types / accessories / common faults, plus every make and make+model already seen on jobs.
    */
+  /**
+   * Intake: a serial / asset tag seen before fills the unit's details — from its latest repair job first, then the
+   * serial register and its inventory product. Only what the form needs (no history, no other customers' data beyond the owner).
+   */
+  @Get('repair/intake-lookup')
+  @Permissions('repair.job.create')
+  async intakeLookup(@CurrentUser() user: AuthUser, @Query('serial') raw = '') {
+    const code = raw.trim();
+    if (!code) throw new BadRequestException('Serial required');
+    const c = user.companyId;
+    const [job, repairs, item] = await Promise.all([
+      this.prisma.job.findFirst({ where: { companyId: c, deletedAt: null, OR: [{ serial: code }, { assetTag: code }] }, orderBy: { createdAt: 'desc' } }),
+      this.prisma.job.count({ where: { companyId: c, deletedAt: null, OR: [{ serial: code }, { assetTag: code }] } }),
+      this.prisma.serialItem.findUnique({ where: { companyId_serial: { companyId: c, serial: code } } }),
+    ]);
+    const product = item?.productId ? await this.prisma.product.findFirst({ where: { id: item.productId, companyId: c }, select: { name: true, brand: true, model: true } }) : null;
+    if (!job && !item) return { found: false };
+    const pick = (...v: (string | null | undefined)[]) => v.find((x) => x && String(x).trim()) ?? null;
+    const customerId = job?.customerId ?? item?.customerId ?? null;
+    const customer = customerId ? await this.prisma.customer.findFirst({ where: { id: customerId, companyId: c }, select: { id: true, name: true } }) : null;
+    return {
+      found: true, repairs,
+      unit: {
+        productType: pick(job?.productType, item?.itemName), brand: pick(job?.brand, item?.brand, product?.brand), model: pick(job?.model, item?.model, product?.model),
+        serial: pick(job?.serial, item?.serial), assetTag: pick(job?.assetTag), frequencyBand: pick(job?.frequencyBand), firmwareVersion: pick(job?.firmwareVersion),
+        accessories: Array.isArray(job?.accessories) ? job!.accessories : [],
+      },
+      label: pick(product?.name, item?.itemName, [job?.brand, job?.model].filter(Boolean).join(' ')),
+      customer, warrantyUntil: item?.warrantyUntil ?? null,
+    };
+  }
+
   @Get('repair/intake-options')
   @Permissions('repair.job.create')
   async intakeOptions(@CurrentUser() user: AuthUser) {
     const md = await this.prisma.masterData.findMany({ where: { companyId: user.companyId, isActive: true, type: { in: ['equipment_type', 'accessory', 'fault'] } }, orderBy: [{ sort: 'asc' }, { name: 'asc' }], select: { id: true, type: true, name: true } });
-    const seen = await this.prisma.job.groupBy({ by: ['brand', 'model'], where: { companyId: user.companyId, deletedAt: null, brand: { not: null } }, _count: true, orderBy: { _count: { brand: 'desc' } }, take: 2000 });
+    const [jobSeen, stocked] = await Promise.all([
+      this.prisma.job.groupBy({ by: ['brand', 'model'], where: { companyId: user.companyId, deletedAt: null, brand: { not: null } }, _count: true, orderBy: { _count: { brand: 'desc' } }, take: 2000 }),
+      // Inventory products' makes/models too, so a first-time unit of a stocked model is a pick, not retyping.
+      this.prisma.product.groupBy({ by: ['brand', 'model'], where: { companyId: user.companyId, deletedAt: null, brand: { not: null } }, orderBy: { brand: 'asc' }, take: 2000 }),
+    ]);
+    const seen: { brand: string | null; model: string | null }[] = [...jobSeen, ...stocked];
     const of = (t: string) => md.filter((m) => m.type === t).map(({ id, name }) => ({ id, name }));
     return {
       equipment_type: of('equipment_type'), accessory: of('accessory'), fault: of('fault'),

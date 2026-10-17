@@ -56,19 +56,24 @@ export default function IntakePage() {
   const reset = () => { setItems([blank()]); setCustomerId(null); setNotes(''); setKnown({}); setTried(false); try { localStorage.removeItem(DRAFT); } catch { /* ignore */ } };
 
   /** Serial entered: fill blanks from the serial register and show warranty / repair history. */
+  /** Serial / asset tag entered: a unit seen before (earlier job, serial register, inventory product) fills every blank field. */
   const lookupSerial = async (i: number, serial: string) => {
     if (!serial.trim()) return setKnown((k) => ({ ...k, [i]: undefined as unknown as Known }));
     setKnown((k) => ({ ...k, [i]: { state: 'loading' } }));
     try {
-      const r = await api<{ item: Record<string, unknown> | null; product: Record<string, string> | null; warranty: { state: string }; history: { kind: string }[] }>(`serials/lookup?${qs({ serial: serial.trim() })}`);
-      const src = { ...r.product, ...Object.fromEntries(Object.entries(r.item ?? {}).filter(([, v]) => v)) } as Record<string, unknown>;
+      type Found = { found: boolean; repairs?: number; label?: string | null; warrantyUntil?: string | null; customer?: { id: string; name: string } | null; unit?: Record<string, unknown> };
+      const r = await api<Found>(`repair/intake-lookup?${qs({ serial: serial.trim() })}`);
+      if (!r.found || !r.unit) return setKnown((k) => ({ ...k, [i]: { state: 'new' } }));
+      const inWarranty = !!r.warrantyUntil && String(r.warrantyUntil).slice(0, 10) >= new Date().toISOString().slice(0, 10);
+      // Only blanks are filled: what the counter already typed wins.
       setItems((xs) => xs.map((x, j) => (j !== i ? x : {
         ...x,
-        brand: x.brand || src.brand, model: x.model || src.model,
-        warranty: x.warranty || r.warranty.state === 'active' || r.warranty.state === 'expiring',
+        ...Object.fromEntries(Object.entries(r.unit!).filter(([key, v]) => key !== 'accessories' && v && !String(x[key as keyof Item] ?? '').trim())),
+        accessories: x.accessories?.length ? x.accessories : (r.unit!.accessories as string[]),
+        warranty: x.warranty || inWarranty,
       })));
-      if (!customerId && r.item?.customerId) setCustomerId(r.item.customerId);
-      setKnown((k) => ({ ...k, [i]: { state: 'known', warranty: r.warranty.state, repairs: r.history.filter((h) => h.kind === 'repair').length, label: String(src.itemName ?? src.name ?? '') } }));
+      if (!customerId && r.customer) setCustomerId(r.customer.id);
+      setKnown((k) => ({ ...k, [i]: { state: 'known', warranty: !r.warrantyUntil ? 'none' : inWarranty ? 'active' : 'expired', repairs: r.repairs, label: [r.label, r.customer && `owner: ${r.customer.name}`].filter(Boolean).join(' · ') } }));
     } catch { setKnown((k) => ({ ...k, [i]: { state: 'new' } })); }
   };
 

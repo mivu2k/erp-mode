@@ -410,3 +410,20 @@ test('search: scanning a barcode from a photo opens the record (no built-in read
   await page.locator('input[type=file][capture]').setInputFiles({ name: 'code.png', mimeType: 'image/png', buffer: png });
   await expect(page).toHaveURL(new RegExp(`/r/repair.job/${job.id}`), { timeout: 15_000 });
 });
+
+test('intake: a known serial fills make, model, type and the owner', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const cust = await (await request.post('/api/r/sales.customer', { headers: auth, data: { name: `Owner ${run}` } })).json();
+  await request.post('/api/repair/intakes', { headers: auth, data: { customerId: cust.id, items: [{ productType: 'Handheld radio', brand: 'Hytera', model: `PD-${run}`, serial: `KN-${run}`, fault: 'No power' }] } });
+  await page.goto('/repair/intake');
+  await page.getByRole('button', { name: 'Clear form' }).click();
+  await page.getByLabel('Serial number').fill(`KN-${run}`);
+  await page.getByLabel('Serial number').press('Enter');
+  await expect(page.getByText(/Known unit/)).toBeVisible();
+  await expect(page.getByLabel('Make')).toHaveValue('Hytera');
+  await expect(page.getByLabel('Model')).toHaveValue(`PD-${run}`);
+  await expect(page.getByLabel('Equipment type')).toHaveValue('Handheld radio');
+  await expect(page.getByText(`owner: Owner ${run}`)).toBeVisible();
+  await page.getByRole('button', { name: 'Clear form' }).click();
+});

@@ -174,6 +174,20 @@ test('repair: re-diagnosis keeps the earlier findings; an accepted quotation inv
   await assert.rejects(call('POST', `repair/quotations/${d2.quotation.id}/invoice`), /already invoiced/);
 });
 
+test('intake lookup: a serial or asset tag seen before fills the unit and its owner; stocked makes are suggested', async () => {
+  const r = await call('GET', `repair/intake-lookup?serial=${encodeURIComponent(`IMEI-${run}`)}`);
+  assert.equal(r.found, true);
+  assert.deepEqual([r.unit.productType, r.unit.brand, r.unit.model, r.unit.assetTag, r.unit.frequencyBand], ['Handheld radio', 'Motorola', 'APX 6000', `UNIT-${run}`, 'VHF 136-174 MHz']);
+  assert.deepEqual(r.unit.accessories, ['Battery', 'Antenna']);
+  assert.equal(r.customer.id, ctx.customer.id);
+  assert.ok(r.repairs >= 1);
+  assert.equal((await call('GET', `repair/intake-lookup?serial=UNIT-${run}`)).unit.serial, `IMEI-${run}`, 'asset tag finds the unit too');
+  assert.equal((await call('GET', `repair/intake-lookup?serial=NEVER-${run}`)).found, false);
+  await call('POST', 'r/inventory.product', { sku: `KNW-${run}`, name: 'Stocked radio', brand: `Kenwood-${run}`, model: 'NX-3220', price: '1000' });
+  const o = await call('GET', 'repair/intake-options');
+  assert.ok(o.makes.includes(`Kenwood-${run}`) && o.models.some((m: J) => m.make === `Kenwood-${run}` && m.model === 'NX-3220'), 'inventory makes/models suggested');
+});
+
 test('Gatepass: demo out → partial return → convert rest to sale', async () => {
   const gp = await call('POST', 'r/gatepass.pass', {
     type: 'demo_out', partyName: 'Client Org', customerId: ctx.customer.id, fromWarehouseId: ctx.wh, expectedReturn: '2026-10-01',
