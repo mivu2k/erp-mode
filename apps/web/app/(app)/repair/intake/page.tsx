@@ -104,7 +104,10 @@ export default function IntakePage() {
       <div className="mb-3"><ErrorBox error={error} /></div>
       <PageHeader title={`Intake ${done.intake.number}`} subtitle={`${done.jobs.length} unit(s) received`}
         actions={<>
-          <Button variant="outline" onClick={() => done.jobs.forEach((j) => openDoc(`print/repair.job/${j.id}`))}>Print all receipts</Button>
+          {/* One combined receipt listing every unit handed in (not one tab per unit). */}
+          <Button variant="outline" onClick={() => openDoc(`print/repair.intake/${done.intake.id}`).catch(setError)}>Intake receipt (A4)</Button>
+          <Button variant="outline" onClick={() => openDoc(`print/repair.intake/${done.intake.id}?size=a5`).catch(setError)}>A5</Button>
+          <Button variant="outline" onClick={() => openDoc(`print/repair.intake/${done.intake.id}?size=80`).catch(setError)}>POS slip</Button>
           <Button onClick={() => { setDone(null); reset(); }}>New intake</Button>
         </>} />
       <Card title="Jobs created">
@@ -113,8 +116,8 @@ export default function IntakePage() {
             <li key={j.id} className="flex flex-wrap items-center justify-between gap-2 py-3">
               <span><Link className="font-medium text-primary hover:underline" href={`/r/repair.job/${j.id}`}>{j.number}</Link> <span className="text-muted-foreground">{unitLabel(items[i] ?? {})}</span></span>
               <span className="flex flex-wrap gap-2">
-                <Button size="sm" variant="outline" onClick={() => openDoc(`print/repair.job/${j.id}`)}>Receipt (A4)</Button>
-                <Button size="sm" variant="outline" onClick={() => openDoc(`print/repair.job/${j.id}?size=80`)}>POS slip</Button>
+                <Button size="sm" variant="outline" onClick={() => openDoc(`print/repair.job/${j.id}`)}>Job card</Button>
+                <Button size="sm" variant="outline" onClick={() => openDoc(`print/repair.job/${j.id}?size=80`)}>Job slip (80mm)</Button>
                 <Button size="sm" variant="outline" onClick={() => openDoc(`print/repair.job/${j.id}?template=label`)}>Unit tag</Button>
               </span>
             </li>

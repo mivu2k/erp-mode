@@ -523,7 +523,7 @@ export class PrintController {
       status: status || undefined, branch: rec.branchId ? String(cell(rec, 'branchId')) : undefined, date: when instanceof Date ? when.toISOString().slice(0, 10) : undefined, party, sections,
       words: profile?.words && grand ? amountInWords(grand, company.currency) : undefined, note: profile?.note, printedBy: user.name,
       // Thermal slips still get plain signature lines for money documents.
-      signatures: profile?.signatures, footer: !isPage(size) && profile?.signatures && profile.words ? profile.signatures.map((s) => `${s}: ______________`).join('\n') : undefined,
+      signatures: profile?.signatures, footer: !isPage(size) && key === 'repair.job' ? 'Scan to track your repair' : undefined,
       lines: lineRows.length ? { columns: lineCols.map(humanize), rows: lineRows.map((r) => lineCols.map((c) => (['qty', 'price', 'amount', 'approved', 'tax'].includes(c) ? fmt(r[c]) : ['debit', 'credit'].includes(c) ? (num(r[c]) ? fmt(r[c]) : '') : cell(r, c)))) } : undefined,
       receipt: receipt.some((l) => l.desc || l.amount) ? receipt : undefined,
       totals: totals.length ? totals : undefined,

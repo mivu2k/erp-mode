@@ -144,9 +144,16 @@ ${d.signatures?.length ? `<div class="signs">${d.signatures.map((s) => `<div>${e
     const b = (d.company.branding ?? {}) as Branding;
     const w = d.size === '58' ? 48 : 72;
     const row = (l: string, r: string, cls = '') => `<div class="row ${cls}"><span>${l}</span><span>${r}</span></div>`;
-    const items = d.receipt?.length
+    const has = (v: unknown) => v !== null && v !== undefined && v !== '';
+    // Priced lines (invoices, job parts) as items; any other table (e.g. the units on an intake) as one numbered block per row.
+    const items = d.receipt?.length && d.receipt.some((l) => l.amount)
       ? d.receipt.map((l) => `<div class="item"><div class="desc">${esc(l.desc)}</div>${row(`${money(l.qty)} × ${money(l.price)}`, money(l.amount))}</div>`).join('')
-      : d.lines ? d.lines.rows.map((r) => `<div class="item">${d.lines!.columns.map((c, i) => r[i] !== '' && r[i] != null ? row(esc(c), esc(r[i])) : '').join('')}</div>`).join('') : '';
+      : d.lines ? d.lines.rows.map((r, n) => `<div class="item"><div class="h">${n + 1}. ${esc(r[0])}</div>${d.lines!.columns.slice(1).map((c, i) => has(r[i + 1]) ? row(esc(c), esc(r[i + 1])) : '').join('')}</div>`).join('') : '';
+    // Grouped like the A4 copy when the document has sections; otherwise the flat field list.
+    const body = d.sections?.length
+      ? d.sections.filter(([, rows]) => rows.some(([, v]) => has(v))).map(([t, rows]) => `<div class="h">${esc(t)}</div>${rows.filter(([, v]) => has(v)).map(([k, v]) => row(esc(k), esc(v))).join('')}`).join('')
+      : d.fields.filter(([k, v]) => has(v) && k !== 'Status').map(([k, v]) => row(esc(k), esc(v))).join('');
+    const sign = d.signatures?.length ? `<div class="sign">${d.signatures.map((x) => `<div>${esc(x)}</div>`).join('')}</div>` : '';
     return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.title)} ${esc(d.number)}</title>
 <style>
   @page { size: ${d.size}mm auto; margin: 0; }
@@ -159,8 +166,16 @@ ${d.signatures?.length ? `<div class="signs">${d.signatures.map((s) => `<div>${e
   .num { font-weight: 700; }
   hr { border: 0; border-top: 1px dashed #000; margin: 2mm 0; }
   .row { display: flex; justify-content: space-between; gap: 2mm; }
-  .row span:first-child { overflow-wrap: anywhere; }
-  .row span:last-child { white-space: nowrap; text-align: right; font-variant-numeric: tabular-nums; }
+  /* Labels stay whole ("Equipment", not "Equip / ment"); long values wrap on the right. */
+  .row span:first-child { white-space: nowrap; flex: none; max-width: 48%; overflow: hidden; text-overflow: ellipsis; }
+  .row span:last-child { text-align: right; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+  .h { font-weight: 700; text-transform: uppercase; font-size: .85em; letter-spacing: .05em; margin: 2mm 0 .5mm; border-bottom: 1px solid #000; }
+  .item .h { text-transform: none; font-size: 1em; letter-spacing: 0; border-bottom: 0; margin-top: 1.5mm; }
+  .party { border: 1px solid #000; padding: 1mm 1.5mm; margin-top: 1mm; }
+  .party b { display: block; }
+  .note { font-size: .85em; margin-top: 2mm; white-space: pre-line; }
+  .sign div { margin-top: 7mm; border-top: 1px solid #000; padding-top: .5mm; font-size: .85em; }
+  .qrcap { font-size: .85em; text-align: center; }
   .item { margin-bottom: 1.2mm; }
   .desc { overflow-wrap: anywhere; }
   .total { font-weight: 700; font-size: 1.2em; border-top: 1px solid #000; padding-top: 1mm; margin-top: 1mm; }
@@ -173,13 +188,19 @@ ${d.signatures?.length ? `<div class="signs">${d.signatures.map((s) => `<div>${e
 </style></head><body>
 <div class="c">${b.logo ? `<img class="logo" src="${esc(b.logo)}" alt="">` : ''}<div class="co">${esc(d.company.name)}</div>
 <div class="muted">${[d.company.address, d.company.phone].filter(Boolean).map(esc).join('<br>')}${d.company.taxId ? `<br>NTN ${esc(d.company.taxId)}` : ''}</div>
-<div class="title">${esc(d.title)}</div>${d.number ? `<div class="num">${esc(d.number)}</div>` : ''}</div>
+<div class="title">${esc(d.title)}</div>${d.number ? `<div class="num">${esc(d.number)}</div>` : ''}
+<div class="muted">${[d.date, d.branch, d.status && d.status.toUpperCase()].filter(Boolean).map(esc).join(' · ')}</div></div>
+${d.party ? `<div class="party"><span class="muted">${esc(d.party.label)}</span><b>${esc(d.party.lines[0] ?? '')}</b>${d.party.lines.slice(1).map(esc).join('<br>')}</div>` : ''}
 <hr>
-${d.fields.filter(([, v]) => v !== null && v !== undefined && v !== '').map(([k, v]) => row(esc(k), esc(v))).join('')}
+${body}
 ${items ? `<hr>${items}` : ''}
 ${d.totals?.length ? `<hr>${d.totals.map(([k, v], i) => row(esc(k), esc(money(v)), i === d.totals!.length - 1 ? 'total' : '')).join('')}` : ''}
+${d.words ? `<div class="note"><b>In words:</b> ${esc(d.words)}</div>` : ''}
 <div class="codes">${d.barcode ? `<div class="bc">${this.barcodeSvg(d.barcode)}</div>` : ''}${d.qr ? `<div class="qr">${this.qrSvg(d.qr)}</div>` : ''}</div>
-<hr><div class="c muted" style="white-space:pre-line;line-height:2">${esc(d.footer ?? b.terms ?? b.footer ?? 'Thank you!')}</div>
+${d.qr && d.footer ? `<div class="qrcap">${esc(d.footer)}</div>` : ''}
+${d.note ? `<div class="note">${esc(d.note)}</div>` : ''}
+${sign}
+<hr><div class="c muted" style="white-space:pre-line">${esc(b.terms ?? b.footer ?? 'Thank you!')}</div>
 <div class="c muted" style="font-size:.85em">${esc(new Date().toLocaleString('en-GB'))}</div>
 <button class="noprint" onclick="print()">Print</button><script>addEventListener('load',()=>print())</script>
 </body></html>`;
