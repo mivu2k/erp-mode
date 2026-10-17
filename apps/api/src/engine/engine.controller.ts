@@ -372,13 +372,14 @@ export class PrintController {
   async doc(
     @CurrentUser() user: AuthUser, @Param('key') key: string, @Param('id') id: string, @Res() res: Response,
     @Query('size') size: PaperSize = 'a4', @Query('template') template?: string, @Query('format') format?: string,
+    @Query('codes') codes?: string, @Query('copies') copies?: string,
   ) {
-    const html = await this.html(user, key, id, size, template);
+    const html = await this.html(user, key, id, size, template, { codes, copies });
     return sendHtmlOrPdf(res, format, html, `${key}-${id}`, isPage(size) ? undefined : Number(size));
   }
 
   /** Printable HTML for any record (also used to attach PDFs to emails). */
-  async html(user: AuthUser, key: string, id: string, size: PaperSize = 'a4', template?: string): Promise<string> {
+  async html(user: AuthUser, key: string, id: string, size: PaperSize = 'a4', template?: string, opts: { codes?: string; copies?: string } = {}): Promise<string> {
     assertCan(user, `${key}.print`);
     const m = this.resources.meta(key);
     const rec = await this.resources.get(user, key, id);
@@ -389,6 +390,13 @@ export class PrintController {
     const title = String(rec[m.def.title] ?? '');
     const code = m.def.barcode ? String(rec[m.def.barcode] ?? '') : title;
 
+    // Product labels: every barcode it has (main + extras; SKU when it has none), or the ones picked, × copies.
+    if (template === 'labels' && key === 'inventory.product') {
+      const own = [...new Set([rec.barcode, ...String(rec.barcodes ?? '').split(/[\s,;]+/)].map((x) => String(x ?? '').trim()).filter(Boolean))];
+      const picked = opts.codes ? opts.codes.split(',').map((x) => x.trim()).filter((x) => own.includes(x)) : own;
+      const n = Math.min(Math.max(Math.trunc(Number(opts.copies) || 1), 1), 200);
+      return this.print.labels(String(rec.name), [rec.sku, [rec.brand, rec.model].filter(Boolean).join(' ')].filter(Boolean).join(' · '), picked.length ? picked : [String(rec.sku)], n);
+    }
     if (template === 'label') return (this.print.label(title, String(m.def.subtitle ? cell(rec, m.def.subtitle) : m.def.label), code || id));
     if (template === 'idcard') {
       const photo = rec.photo ? await this.prisma.attachment.findFirst({ where: { id: String(rec.photo), companyId: user.companyId } }) : null;

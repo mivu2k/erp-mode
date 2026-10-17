@@ -1,5 +1,5 @@
 'use client';
-import { Button, Card, cx, ErrorBox, FieldMeta, FormGrid, humanize, Input, PageHeader, RefRenderer, Skeleton, StatusBadge } from '@erp/ui';
+import { Button, Card, cx, Dialog, ErrorBox, FieldMeta, FormGrid, humanize, Input, PageHeader, RefRenderer, Skeleton, StatusBadge } from '@erp/ui';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -38,6 +38,7 @@ export default function ProductPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [saved, setSaved] = useState(false);
+  const [labels, setLabels] = useState(false);
 
   const load = useCallback(() => {
     if (isNew) return;
@@ -106,7 +107,7 @@ export default function ProductPage() {
         title={<span className="flex flex-wrap items-center gap-2">{title}{!isNew && <StatusBadge status={rec.isActive === false ? 'inactive' : 'active'} />}</span>}
         subtitle={isNew ? 'Name and SKU are required; everything else can be added later' : [rec.sku, rec._refs?.categoryId, [rec.brand, rec.model].filter(Boolean).join(' ')].filter((x) => x && x !== '—').join(' · ')}
         actions={<div className="flex flex-wrap gap-2">
-          {!isNew && can(meta, 'inventory.product.print') && <Button variant="outline" onClick={() => openDoc(`print/${KEY}/${id}?template=label`).catch(setError)}>Print label</Button>}
+          {!isNew && can(meta, 'inventory.product.print') && <Button variant="outline" onClick={() => setLabels(true)}>Print labels</Button>}
           {!isNew && r.can.delete && <Button variant="ghost" onClick={async () => {
             // Soft delete: the product leaves lists and pickers; its stock history stays.
             if (!confirm(`Delete ${rec.name}? It disappears from lists and pickers; its stock history is kept.`)) return;
@@ -143,6 +144,7 @@ export default function ProductPage() {
         </div>
         {!isNew && <StockPanel id={id} rec={rec} />}
       </div>
+      {!isNew && <LabelsDialog open={labels} onClose={() => setLabels(false)} id={id} rec={rec} onError={setError} />}
     </>
   );
 }
@@ -182,16 +184,50 @@ function Barcodes({ main, extra, disabled, onChange }: { main: unknown; extra: u
   );
 }
 
+/** Labels for this product: pick which of its barcodes (main + extras; SKU if none) and how many of each. */
+function LabelsDialog({ open, onClose, id, rec, onError }: { open: boolean; onClose(): void; id: string; rec: Rec; onError(e: unknown): void }) {
+  const codes = [...new Set([String(rec.barcode ?? '').trim(), ...splitCodes(rec.barcodes)].filter(Boolean))];
+  const [pick, setPick] = useState<string[]>(codes);
+  const [copies, setCopies] = useState(1);
+  useEffect(() => { if (open) setPick(codes); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const print = () => openDoc(`print/${KEY}/${id}?${qs({ template: 'labels', codes: codes.length ? pick.join(',') : undefined, copies })}`).then(onClose).catch(onError);
+  return (
+    <Dialog open={open} onClose={onClose} title="Print labels" footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={codes.length > 0 && !pick.length} onClick={print}>Print {(codes.length ? pick.length : 1) * copies} label{(codes.length ? pick.length : 1) * copies === 1 ? '' : 's'}</Button></>}>
+      <div className="space-y-3 text-sm">
+        {codes.length ? (
+          <fieldset className="space-y-1.5">
+            <legend className="mb-1 text-xs text-muted-foreground">Barcodes to print (50 × 30 mm, one per label)</legend>
+            {codes.map((c, i) => (
+              <label key={c} className="flex items-center gap-2">
+                <input type="checkbox" checked={pick.includes(c)} onChange={(e) => setPick((p) => (e.target.checked ? [...p, c] : p.filter((x) => x !== c)))} />
+                <span className="font-mono">{c}</span>{i === 0 && !!rec.barcode && <span className="text-xs text-muted-foreground">main</span>}
+              </label>
+            ))}
+          </fieldset>
+        ) : <p className="text-muted-foreground">This product has no barcode yet — the label will carry its SKU ({String(rec.sku)}).</p>}
+        <label className="block"><span className="mb-1 block text-xs text-muted-foreground">Copies of each</span>
+          <Input type="number" min={1} max={200} value={copies} onChange={(e) => setCopies(Math.min(Math.max(Number(e.target.value) || 1, 1), 200))} className="w-28" /></label>
+      </div>
+    </Dialog>
+  );
+}
+
 /** Saved product: on-hand per warehouse, reorder warning, margin, and the latest stock movements. */
 function StockPanel({ id, rec }: { id: string; rec: Rec }) {
   const meta = useMeta();
   const [stock, setStock] = useState<Rec[] | null>(null);
   const [moves, setMoves] = useState<Rec[] | null>(null);
+  const [jobs, setJobs] = useState<Rec[] | null>(null);
   useEffect(() => {
     const f = (x: object) => encodeURIComponent(JSON.stringify(x));
     if (can(meta, 'inventory.stock.view')) api<{ rows: Rec[] }>(`r/inventory.stock?pageSize=100&filters=${f({ productId: id })}`).then((d) => setStock(d.rows)).catch(() => setStock([]));
     if (can(meta, 'inventory.movement.view')) api<{ rows: Rec[] }>(`r/inventory.movement?${qs({ pageSize: 10, sort: 'at:desc' })}&filters=${f({ productId: id })}`).then((d) => setMoves(d.rows)).catch(() => setMoves([]));
-  }, [id, meta]);
+    // Repairs of this item: jobs linked to it at intake, plus older jobs with the same make and model.
+    if (can(meta, 'repair.job.view')) {
+      const same = rec.brand && rec.model ? [{ brand: rec.brand, model: rec.model }] : [];
+      api<{ rows: Rec[]; total: number }>(`r/repair.job?${qs({ pageSize: 8, sort: 'createdAt:desc' })}&filters=${f({ $or: [{ productId: id }, ...same] })}`).then((d) => setJobs(d.rows)).catch(() => setJobs([]));
+    }
+  }, [id, meta, rec.brand, rec.model]);
   const onHand = (stock ?? []).reduce((s, x) => s + n(x.qty), 0);
   const low = !rec.isService && n(rec.reorderLevel) > 0 && onHand <= n(rec.reorderLevel);
   const margin = n(rec.price) > 0 && rec.cost !== undefined ? ((n(rec.price) - n(rec.cost)) / n(rec.price)) * 100 : null;
@@ -221,6 +257,21 @@ function StockPanel({ id, rec }: { id: string; rec: Rec }) {
           {margin !== null && <div className="flex justify-between"><dt className="text-muted-foreground">Margin</dt><dd className={cx('tabular-nums', margin < 0 && 'text-red-600')}>{margin.toFixed(1)}%</dd></div>}
         </dl>
       </Card>
+      {jobs !== null && (
+        <Card title="Repair history" actions={jobs.length ? <span className="text-xs text-muted-foreground">latest {jobs.length}</span> : undefined}>
+          {!jobs.length ? <p className="text-sm text-muted-foreground">No repairs of this item yet.</p> : (
+            <ul className="divide-y divide-border text-sm">
+              {jobs.map((j) => (
+                <li key={String(j.id)} className="flex items-baseline justify-between gap-2 py-1.5">
+                  <span className="min-w-0"><Link className="text-primary hover:underline" href={`/r/repair.job/${j.id}`}>{String(j.number)}</Link>
+                    <span className="block truncate text-xs text-muted-foreground">{[j._refs?.customerId, j.serial && `S/N ${j.serial}`, j.fault].filter((x) => x && x !== '—').join(' · ')}</span></span>
+                  <StatusBadge status={String(j.status)} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
       {moves !== null && (
         <Card title="Recent movements" actions={<Link className="text-xs text-primary hover:underline" href={`/r/inventory.movement?${qs({ filters: JSON.stringify({ productId: id }) })}`}>All</Link>}>
           {!moves.length ? <p className="text-sm text-muted-foreground">No movements yet.</p> : (

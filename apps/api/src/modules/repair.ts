@@ -19,7 +19,7 @@ export interface QuoteLine { kind: 'labor' | 'part'; refId: string; description:
 
 const quoteLine = z.object({ jobId: z.string().optional(), kind: z.enum(['labor', 'part']), refId: z.string().default(''), description: z.string(), qty: z.coerce.number().positive(), price: z.coerce.number().min(0), taxRate: z.coerce.number().min(0).default(0) });
 const item = z.object({
-  productType: z.string().max(191).optional(), brand: z.string().max(191).optional(), model: z.string().max(191).optional(), serial: z.string().max(191).optional(),
+  productId: z.string().max(191).optional(), productType: z.string().max(191).optional(), brand: z.string().max(191).optional(), model: z.string().max(191).optional(), serial: z.string().max(191).optional(),
   assetTag: z.string().max(191).optional(), firmwareVersion: z.string().max(191).optional(), frequencyBand: z.string().max(191).optional(), zeroized: z.boolean().optional(),
   accessories: z.array(z.string()).optional(), condition: z.record(z.unknown()).optional(), fault: z.string().min(1), password: z.string().optional(),
   warranty: z.boolean().optional(), expectedAt: z.coerce.date().optional(), warrantyDays: z.number().int().optional(),
@@ -79,6 +79,8 @@ export class RepairController {
           const unit = await tx.serialItem.findUnique({ where: { companyId_serial: { companyId: user.companyId, serial: it.serial } }, select: { warrantyUntil: true } });
           if (unit?.warrantyUntil && unit.warrantyUntil >= new Date(new Date().toISOString().slice(0, 10))) rest.warranty = true;
         }
+        // A product link must be one of this company's products; anything else is dropped, not trusted.
+        if (rest.productId && !(await tx.product.findFirst({ where: { id: rest.productId, companyId: user.companyId }, select: { id: true } }))) delete rest.productId;
         const job = await tx.job.create({
           data: {
             ...rest, companyId: user.companyId, branchId: user.branchId, intakeId: intake.id, customerId: b.customerId, createdById: user.id,
@@ -618,7 +620,12 @@ export class RepairController {
       this.prisma.job.count({ where: { companyId: c, deletedAt: null, OR: [{ serial: code }, { assetTag: code }] } }),
       this.prisma.serialItem.findUnique({ where: { companyId_serial: { companyId: c, serial: code } } }),
     ]);
-    const product = item?.productId ? await this.prisma.product.findFirst({ where: { id: item.productId, companyId: c }, select: { name: true, brand: true, model: true } }) : null;
+    // Not a known unit? It may be a product barcode (main or extra): that names the item, not the unit.
+    const byBarcode = !job && !item ? (await this.prisma.product.findMany({ where: { companyId: c, deletedAt: null, OR: [{ barcode: code }, { barcodes: { contains: code } }] }, select: { id: true, name: true, brand: true, model: true, barcode: true, barcodes: true }, take: 5 }))
+      .find((p) => p.barcode === code || (p.barcodes ?? '').split(/[\s,;]+/).includes(code)) : undefined;
+    if (byBarcode) return { found: true, kind: 'product', repairs: await this.prisma.job.count({ where: { companyId: c, productId: byBarcode.id, deletedAt: null } }), unit: { productId: byBarcode.id, productType: byBarcode.name, brand: byBarcode.brand, model: byBarcode.model, accessories: [] }, label: byBarcode.name, customer: null, warrantyUntil: null };
+    const productId = job?.productId ?? item?.productId ?? null;
+    const product = productId ? await this.prisma.product.findFirst({ where: { id: productId, companyId: c }, select: { name: true, brand: true, model: true } }) : null;
     if (!job && !item) return { found: false };
     const pick = (...v: (string | null | undefined)[]) => v.find((x) => x && String(x).trim()) ?? null;
     const customerId = job?.customerId ?? item?.customerId ?? null;
@@ -626,7 +633,7 @@ export class RepairController {
     return {
       found: true, repairs,
       unit: {
-        productType: pick(job?.productType, item?.itemName), brand: pick(job?.brand, item?.brand, product?.brand), model: pick(job?.model, item?.model, product?.model),
+        productId, productType: pick(job?.productType, item?.itemName), brand: pick(job?.brand, item?.brand, product?.brand), model: pick(job?.model, item?.model, product?.model),
         serial: pick(job?.serial, item?.serial), assetTag: pick(job?.assetTag), frequencyBand: pick(job?.frequencyBand), firmwareVersion: pick(job?.firmwareVersion),
         accessories: Array.isArray(job?.accessories) ? job!.accessories : [],
       },

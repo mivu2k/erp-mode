@@ -208,8 +208,16 @@ ${sign}
 
   /** Small sticker: barcode + name (products, job tags, asset tags). */
   label(title: string, subtitle: string, code: string) {
-    return `<!doctype html><html><head><meta charset="utf-8"><style>@page{size:50mm 30mm;margin:1mm}body{font:10px system-ui;margin:0;text-align:center}svg{width:46mm;height:14mm}</style></head>
-<body><b>${esc(title)}</b><br>${esc(subtitle)}<br>${this.barcodeSvg(code)}<script>addEventListener('load',()=>print())</script></body></html>`;
+    return this.labels(title, subtitle, [code], 1);
+  }
+
+  /** A run of 50×30 mm labels, one per page (label printers cut on page breaks): each code × copies. */
+  labels(title: string, subtitle: string, codes: string[], copies: number) {
+    const one = (code: string) => `<div class="l"><b>${esc(title)}</b><div class="s">${esc(subtitle)}</div>${this.barcodeSvg(code)}</div>`;
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} labels</title><style>@page{size:50mm 30mm;margin:1mm}body{font:10px system-ui;margin:0;text-align:center}
+.l{height:27.5mm;overflow:hidden;break-after:page}.l:last-child{break-after:auto}.l b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s{font-size:8px}svg{width:46mm;height:14mm}
+@media screen{body{background:#e2e8f0}.l{width:50mm;margin:2mm auto;background:#fff;padding:1mm}}</style></head>
+<body>${codes.flatMap((c) => Array.from({ length: copies }, () => one(c))).join('')}<script>addEventListener('load',()=>print())</script></body></html>`;
   }
 
   /** CR80 ID card, front and back (two 54×86 mm pages), in the company's brand colour. */

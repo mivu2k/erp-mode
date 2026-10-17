@@ -200,6 +200,26 @@ test('products: optional, multiple barcodes; any of them scans; one barcode neve
   await assert.rejects(call('POST', 'r/inventory.product', { sku: `DUP-${run}`, name: 'Other', price: '1', barcodes: `B3-${run}` }), /already on Analyzer/);
   await assert.rejects(call('PATCH', `r/inventory.product/${none.id}`, { barcode: `B2-${run}` }), /already on Analyzer/);
   assert.equal((await call('PATCH', `r/inventory.product/${p.id}`, { name: 'Analyzer v2' })).name, 'Analyzer v2', 'saving without touching barcodes is fine');
+
+  // Labels: every barcode by default, or the picked ones, × copies (one 50×30 label per page).
+  const html = async (q: string) => (await fetch(`${API}/print/inventory.product/${p.id}?template=labels${q}`, { headers: { Authorization: `Bearer ${token}` } })).text();
+  const count = (h: string) => (h.match(/class="l"/g) ?? []).length;
+  assert.equal(count(await html('&copies=2')), 6, '3 codes × 2');
+  assert.equal(count(await html(`&codes=B3-${run},NOT-MINE&copies=3`)), 3, 'only its own codes, picked one × 3');
+  assert.equal(count(await html('')), 3);
+  const plain = await html('').then(() => fetch(`${API}/print/inventory.product/${none.id}?template=labels`, { headers: { Authorization: `Bearer ${token}` } }).then((r) => r.text()));
+  assert.equal(count(plain), 1, 'no barcode: one label with the SKU');
+
+  // Repair: the product barcode identifies the item at intake; the job links back, and shows in its repair history.
+  await call('PATCH', `r/inventory.product/${p.id}`, { brand: 'Fluke', model: `X-${run}` });
+  const look = await call('GET', `repair/intake-lookup?serial=B2-${run}`);
+  assert.deepEqual([look.kind, look.unit.productId, look.unit.brand, look.unit.model], ['product', p.id, 'Fluke', `X-${run}`]);
+  const { jobs } = await call('POST', 'repair/intakes', { customerId: ctx.customer.id, items: [{ productId: p.id, productType: 'Analyzer', brand: 'Fluke', model: `X-${run}`, serial: `UNIT-A-${run}`, fault: 'Display dead' }, { productId: 'not-a-real-product', fault: 'x' }] });
+  assert.equal((await call('GET', `r/repair.job/${jobs[0].id}`)).productId, p.id);
+  assert.equal((await call('GET', `r/repair.job/${jobs[1].id}`)).productId, null, 'unknown product ids are dropped');
+  const history = await list('repair.job', { $or: [{ productId: p.id }, { brand: 'Fluke', model: `X-${run}` }] });
+  assert.ok(history.some((j) => j.id === jobs[0].id), 'repair history finds it');
+  assert.equal((await call('GET', `repair/intake-lookup?serial=B2-${run}`)).repairs, 1);
 });
 
 test('new product: SKU from make/model, make detected from the name, SKU unique', async () => {

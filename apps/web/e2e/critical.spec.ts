@@ -411,7 +411,7 @@ test('search: scanning a barcode from a photo opens the record (no built-in read
   // "Photograph" the job's printed barcode label: render it large and screenshot it as a PNG.
   const label = (await (await request.get(`/api/print/repair.job/${job.id}?template=label`, { headers: auth })).text()).replace(/<script[\s\S]*?<\/script>/g, '');
   const cam = await browser.newPage();
-  await cam.setContent(label.replace('svg{width:46mm;height:14mm}', 'svg{width:700px;height:200px}body{padding:40px;background:#fff}'));
+  await cam.setContent(label.replace('</style>', 'svg{width:700px!important;height:200px!important}.l{width:auto!important;height:auto!important;overflow:visible!important}body{padding:40px;background:#fff}</style>'));
   const png = await cam.locator('svg').first().screenshot();
   await cam.close();
 
@@ -461,4 +461,21 @@ test('new product: typing the name fills make and a SKU', async ({ page, request
   await page.getByRole('textbox', { name: 'Model', exact: true }).fill('X1');
   await page.waitForTimeout(700);
   await expect(page.getByRole('textbox', { name: 'SKU / item code', exact: true })).toHaveValue(`MY-${run}`, { timeout: 1 }); // own SKU kept
+});
+
+test('product: label dialog for all its barcodes; repair history from intake', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const p = await (await request.post('/api/r/inventory.product', { headers: auth, data: { sku: `LBL-${run}`, name: `Meter ${run}`, brand: 'Fluke', model: `M-${run}`, price: '5', barcode: `L1-${run}`, barcodes: `L2-${run}` } })).json();
+  const cust = await (await request.post('/api/r/sales.customer', { headers: auth, data: { name: `Lab ${run}` } })).json();
+  const { jobs } = await (await request.post('/api/repair/intakes', { headers: auth, data: { customerId: cust.id, items: [{ productId: p.id, brand: 'Fluke', model: `M-${run}`, fault: 'No display' }] } })).json();
+  await page.goto(`/inventory/products/${p.id}`);
+  await expect(page.getByRole('link', { name: jobs[0].number })).toBeVisible(); // repair history
+  await page.getByRole('button', { name: 'Print labels' }).click();
+  const dlg = page.getByRole('dialog');
+  await expect(dlg.getByText(`L2-${run}`)).toBeVisible();
+  await dlg.getByLabel('Copies of each').fill('3');
+  await expect(dlg.getByRole('button', { name: 'Print 6 labels' })).toBeVisible();
+  await dlg.getByRole('checkbox').first().uncheck();
+  await expect(dlg.getByRole('button', { name: 'Print 3 labels' })).toBeVisible();
 });

@@ -61,7 +61,7 @@ export default function IntakePage() {
     if (!serial.trim()) return setKnown((k) => ({ ...k, [i]: undefined as unknown as Known }));
     setKnown((k) => ({ ...k, [i]: { state: 'loading' } }));
     try {
-      type Found = { found: boolean; repairs?: number; label?: string | null; warrantyUntil?: string | null; customer?: { id: string; name: string } | null; unit?: Record<string, unknown> };
+      type Found = { found: boolean; kind?: 'product'; repairs?: number; label?: string | null; warrantyUntil?: string | null; customer?: { id: string; name: string } | null; unit?: Record<string, unknown> };
       const r = await api<Found>(`repair/intake-lookup?${qs({ serial: serial.trim() })}`);
       if (!r.found || !r.unit) return setKnown((k) => ({ ...k, [i]: { state: 'new' } }));
       const inWarranty = !!r.warrantyUntil && String(r.warrantyUntil).slice(0, 10) >= new Date().toISOString().slice(0, 10);
@@ -71,9 +71,11 @@ export default function IntakePage() {
         ...Object.fromEntries(Object.entries(r.unit!).filter(([key, v]) => key !== 'accessories' && v && !String(x[key as keyof Item] ?? '').trim())),
         accessories: x.accessories?.length ? x.accessories : (r.unit!.accessories as string[]),
         warranty: x.warranty || inWarranty,
+        // A product barcode names the model, not this unit: don't keep it as the unit's serial.
+        ...(r.kind === 'product' && String(x.serial ?? '').trim() === serial.trim() ? { serial: '' } : {}),
       })));
       if (!customerId && r.customer) setCustomerId(r.customer.id);
-      setKnown((k) => ({ ...k, [i]: { state: 'known', warranty: !r.warrantyUntil ? 'none' : inWarranty ? 'active' : 'expired', repairs: r.repairs, label: [r.label, r.customer && `owner: ${r.customer.name}`].filter(Boolean).join(' · ') } }));
+      setKnown((k) => ({ ...k, [i]: { state: 'known', warranty: !r.warrantyUntil ? 'none' : inWarranty ? 'active' : 'expired', repairs: r.repairs, label: [r.kind === 'product' ? `product barcode: ${r.label} — now enter the unit's own serial` : r.label, r.customer && `owner: ${r.customer.name}`].filter(Boolean).join(' · ') } }));
     } catch { setKnown((k) => ({ ...k, [i]: { state: 'new' } })); }
   };
 

@@ -25,6 +25,8 @@ model Job {
   intake        Intake?   @relation(fields: [intakeId], references: [id])
   customerId    String?
   vehicleId     String?
+  /// Inventory product this unit is (set when its barcode is scanned at intake): powers the product's repair history
+  productId     String?
   productType   String?
   brand         String?
   model         String?
@@ -64,6 +66,7 @@ model Job {
 
   @@index([companyId, status])
   @@index([technicianId, status])
+  @@index([productId])
   @@index([serial])
   @@index([assetTag])
   @@index([vehicleId])
