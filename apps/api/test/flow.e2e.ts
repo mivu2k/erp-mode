@@ -233,6 +233,23 @@ test('new product: SKU from make/model, make detected from the name, SKU unique'
   assert.equal(p.sku, s1.sku);
 });
 
+test('spare parts: own kind and list; issue parts defaults to the Workshop store', async () => {
+  assert.equal((await call('POST', 'r/inventory.product', { sku: `PRD-${run}`, name: 'Sold item', price: '1' })).kind, 'product', 'items are products unless marked');
+  const part = await call('POST', 'r/inventory.product', { sku: `PRT-${run}`, name: 'PA module', kind: 'part', price: '800' });
+  const parts = await list('inventory.product', { kind: 'part' });
+  assert.ok(parts.some((x) => x.id === part.id) && parts.every((x) => x.kind === 'part'));
+  const ws = (await list('inventory.warehouse', { kind: 'repair' }))[0];
+  assert.ok(ws, 'a Workshop store exists');
+  const adj = await call('POST', 'r/inventory.adjustment', { kind: 'count', warehouseId: ws.id, lines: [{ productId: part.id, qty: 5, unitCost: 500 }] });
+  await approveAll('inventory.adjustment', adj.id);
+  await call('POST', `inventory/adjustments/${adj.id}/post`);
+  const { jobs } = await call('POST', 'repair/intakes', { customerId: ctx.customer.id, items: [{ brand: 'Motorola', model: 'XPR', fault: 'Low power' }] });
+  const d = await call('POST', `repair/jobs/${jobs[0].id}/diagnose`, { findings: 'PA module failed', parts: [{ productId: part.id, qty: 2 }] });
+  await call('POST', `repair/quotations/${d.quotation.id}/decision`, { accepted: true, via: 'phone' });
+  await call('POST', `repair/jobs/${jobs[0].id}/issue-parts`, {}); // no store picked
+  assert.equal(Number((await list('inventory.stock', { productId: part.id, warehouseId: ws.id }))[0].qty), 3, 'taken from the Workshop store');
+});
+
 test('Gatepass: demo out → partial return → convert rest to sale', async () => {
   const gp = await call('POST', 'r/gatepass.pass', {
     type: 'demo_out', partyName: 'Client Org', customerId: ctx.customer.id, fromWarehouseId: ctx.wh, expectedReturn: '2026-10-01',

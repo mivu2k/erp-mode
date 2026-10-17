@@ -45,6 +45,8 @@ model Product {
   barcode      String?
   /// More barcodes for the same item (other suppliers, packs), one per line; all are optional
   barcodes     String?   @db.Text
+  /// product = sold / stocked goods; part = repair spare part (own list, Workshop store, repair pickers)
+  kind         String    @default("product")
   name         String
   categoryId   String? // MasterData product_category
   brand        String?
@@ -68,6 +70,7 @@ model Product {
   deletedAt    DateTime?
 
   @@unique([companyId, sku])
+  @@index([companyId, kind])
   @@index([barcode])
 }
 

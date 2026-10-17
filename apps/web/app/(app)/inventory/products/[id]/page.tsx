@@ -12,13 +12,13 @@ type Rec = Record<string, unknown> & { id?: string; _refs?: Record<string, strin
 const KEY = 'inventory.product';
 /** The product form in the order a storekeeper fills it; anything not listed (custom fields) goes under "More". */
 const SECTIONS: [string, string, string[]][] = [
-  ['Item', 'What it is and how it is grouped', ['name', 'sku', 'categoryId', 'brand', 'model', 'unitId', 'isService', 'isActive']],
+  ['Item', 'What it is and how it is grouped', ['name', 'sku', 'kind', 'categoryId', 'brand', 'model', 'unitId', 'isService', 'isActive']],
   ['Pricing', 'Selling price and tax; cost is the running average from receipts', ['price', 'taxId', 'cost']],
   ['Stock control', 'When to reorder, and how units are tracked', ['reorderLevel', 'serialized', 'warrantyMonths']],
   ['Compatibility', 'Models or equipment this part fits', ['compatible']],
   ['Images', '', ['images']],
 ];
-const LABELS: Record<string, string> = { sku: 'SKU / item code', categoryId: 'Category', brand: 'Make', unitId: 'Unit', taxId: 'Tax', cost: 'Average cost', reorderLevel: 'Reorder when stock falls to', serialized: 'Track serial numbers', warrantyMonths: 'Warranty (months, 0 = company default)', isService: 'Service (no stock)', isActive: 'Active', compatible: 'Compatible with' };
+const LABELS: Record<string, string> = { kind: 'Kind (product to sell, or repair spare part)', sku: 'SKU / item code', categoryId: 'Category', brand: 'Make', unitId: 'Unit', taxId: 'Tax', cost: 'Average cost', reorderLevel: 'Reorder when stock falls to', serialized: 'Track serial numbers', warrantyMonths: 'Warranty (months, 0 = company default)', isService: 'Service (no stock)', isActive: 'Active', compatible: 'Compatible with' };
 const SKIP = new Set(['barcode', 'barcodes', 'custom']);
 const n = (v: unknown) => Number(v ?? 0) || 0;
 const fmt = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -33,7 +33,7 @@ export default function ProductPage() {
   const meta = useMeta();
   const r = useResource(KEY);
   const [rec, setRec] = useState<Rec>({});
-  const [values, setValues] = useState<Rec>(() => (isNew ? { isActive: true, ...Object.fromEntries(search.entries()) } : {}));
+  const [values, setValues] = useState<Rec>(() => (isNew ? { isActive: true, kind: 'product', ...Object.fromEntries(search.entries()) } : {}));
   const [loaded, setLoaded] = useState(isNew);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -97,12 +97,14 @@ export default function ProductPage() {
 
   if (!r) return <p className="text-sm text-muted-foreground">You don&apos;t have access to products.</p>;
   if (!loaded) return <Skeleton className="h-96" />;
-  const title = isNew ? 'New product' : String(rec.name ?? 'Product');
+  const title = isNew ? (values.kind === 'part' ? 'New spare part' : 'New product') : String(rec.name ?? 'Product');
   const missing = !String(values.name ?? '').trim() || !String(values.sku ?? '').trim();
 
   return (
     <>
-      <div className="mb-1 text-xs text-muted-foreground"><Link className="hover:underline" href="/r/inventory.product">Inventory › Products</Link></div>
+      <div className="mb-1 text-xs text-muted-foreground">{values.kind === 'part'
+        ? <Link className="hover:underline" href="/r/inventory.product?kind=part">Repair › Spare parts</Link>
+        : <Link className="hover:underline" href="/r/inventory.product?kind=product">Inventory › Products</Link>}</div>
       <PageHeader
         title={<span className="flex flex-wrap items-center gap-2">{title}{!isNew && <StatusBadge status={rec.isActive === false ? 'inactive' : 'active'} />}</span>}
         subtitle={isNew ? 'Name and SKU are required; everything else can be added later' : [rec.sku, rec._refs?.categoryId, [rec.brand, rec.model].filter(Boolean).join(' ')].filter((x) => x && x !== '—').join(' · ')}
@@ -111,7 +113,7 @@ export default function ProductPage() {
           {!isNew && r.can.delete && <Button variant="ghost" onClick={async () => {
             // Soft delete: the product leaves lists and pickers; its stock history stays.
             if (!confirm(`Delete ${rec.name}? It disappears from lists and pickers; its stock history is kept.`)) return;
-            try { await api(`r/${KEY}/${id}`, 'DELETE'); router.replace('/r/inventory.product'); } catch (e) { setError(e); }
+            try { await api(`r/${KEY}/${id}`, 'DELETE'); router.replace(`/r/inventory.product?kind=${rec.kind === 'part' ? 'part' : 'product'}`); } catch (e) { setError(e); }
           }}>Delete</Button>}
           {canEdit && <Button disabled={busy || missing} onClick={save}>{busy ? 'Saving…' : isNew ? 'Create product' : 'Save changes'}</Button>}
         </div>} />

@@ -45,7 +45,10 @@ function menu(meta: Meta) {
   if (can(meta, 'utilities.connection.view')) add('utilities', '/utilities', 'Tracker');
   if (can(meta, 'payables.due.create')) { add('payables', '/r/payables.due/new?direction=receivable', 'Add receivable'); add('payables', '/r/payables.due/new?direction=payable', 'Add payable'); }
   if (can(meta, 'finance.report.view')) add('finance', '/finance/reports', 'Financial reports');
-  for (const r of meta.resources) add(r.group ?? r.key.split('.')[0], r.key === 'finance.account' ? '/finance/accounts' : `/r/${r.key}`, r.label);
+  // Products and repair spare parts are one item list, split by kind: each gets its own menu entry.
+  const href = (k: string) => (k === 'finance.account' ? '/finance/accounts' : k === 'inventory.product' ? '/r/inventory.product?kind=product' : `/r/${k}`);
+  for (const r of meta.resources) add(r.group ?? r.key.split('.')[0], href(r.key), r.label);
+  if (can(meta, 'inventory.product.view')) add('repair', '/r/inventory.product?kind=part', 'Spare parts');
   add('reports', '/reports', 'Reports'); // standard library lists only reports on data the user can see
   if (can(meta, 'reports.dashboard.view')) add('reports', '/dashboards', 'Dashboard builder');
   if (can(meta, 'core.role.manage')) add('core', '/admin/roles', 'Roles & permissions');

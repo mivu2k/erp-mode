@@ -263,8 +263,9 @@ export class RepairController {
 
   @Post('repair/jobs/:id/issue-parts')
   @Permissions('inventory.movement.create')
-  issue(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
-    const b = parse(z.object({ warehouseId: z.string(), serials: z.record(z.array(z.string())).optional() }), body);
+  async issue(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
+    const b = parse(z.object({ warehouseId: z.string().optional(), serials: z.record(z.array(z.string())).optional() }), body);
+    const warehouseId = b.warehouseId || (await this.workshopStore(user));
     return this.prisma.$transaction(async (tx) => {
       const job = await this.job(tx, user, id);
       const parts = await tx.jobPart.findMany({ where: { jobId: id } });
@@ -275,7 +276,7 @@ export class RepairController {
         const serials = b.serials?.[p.id] ?? [];
         const moves = serials.length ? serials.slice(0, need).map((s) => ({ qty: 1, serial: s })) : [{ qty: need, serial: null }];
         let cost = 0;
-        for (const mv of moves) cost = await this.stock.move(tx, { companyId: user.companyId, productId: p.productId, warehouseId: b.warehouseId, qty: -mv.qty, serial: mv.serial, type: 'job_issue', refType: 'repair.job', refId: id, userId: user.id, serialStatus: 'issued' });
+        for (const mv of moves) cost = await this.stock.move(tx, { companyId: user.companyId, productId: p.productId, warehouseId, qty: -mv.qty, serial: mv.serial, type: 'job_issue', refType: 'repair.job', refId: id, userId: user.id, serialStatus: 'issued' });
         const qty = moves.reduce((s, m) => s + m.qty, 0);
         await tx.jobPart.update({ where: { id: p.id }, data: { issuedQty: { increment: qty }, unitCost: cost, serial: serials[0] ?? p.serial } });
         issued += qty;
@@ -287,8 +288,9 @@ export class RepairController {
 
   @Post('repair/jobs/:id/return-parts')
   @Permissions('inventory.movement.create')
-  returnParts(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
-    const b = parse(z.object({ warehouseId: z.string(), lines: z.array(z.object({ partId: z.string(), qty: z.coerce.number().positive() })).optional() }), body);
+  async returnParts(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
+    const b = parse(z.object({ warehouseId: z.string().optional(), lines: z.array(z.object({ partId: z.string(), qty: z.coerce.number().positive() })).optional() }), body);
+    const warehouseId = b.warehouseId || (await this.workshopStore(user));
     return this.prisma.$transaction(async (tx) => {
       await this.job(tx, user, id);
       const parts = await tx.jobPart.findMany({ where: { jobId: id } });
@@ -298,7 +300,7 @@ export class RepairController {
         const qty = b.lines ? b.lines.find((l) => l.partId === p.id)?.qty ?? 0 : out;
         if (qty <= 0) continue;
         if (qty > out) throw new BadRequestException('Returning more than issued');
-        await this.stock.move(tx, { companyId: user.companyId, productId: p.productId, warehouseId: b.warehouseId, qty, unitCost: Number(p.unitCost), serial: p.serial, type: 'job_return', refType: 'repair.job', refId: id, userId: user.id });
+        await this.stock.move(tx, { companyId: user.companyId, productId: p.productId, warehouseId, qty, unitCost: Number(p.unitCost), serial: p.serial, type: 'job_return', refType: 'repair.job', refId: id, userId: user.id });
         await tx.jobPart.update({ where: { id: p.id }, data: { returnedQty: { increment: qty } } });
         returned += qty;
       }
@@ -391,6 +393,13 @@ export class RepairController {
       const open = await tx.invoice.count({ where: { companyId: user.companyId, status: { not: 'paid' }, deletedAt: null, OR: [{ jobId: j.id }, ...(j.intakeId ? [{ intakeId: j.intakeId }] : [])] } });
       if (!open) await this.transition(tx, user, j.id, 'closed');
     }
+  }
+
+  /** Where spare parts live: the company's repair store (Workshop store); asked for when there is none. */
+  private async workshopStore(user: AuthUser) {
+    const w = await this.prisma.warehouse.findFirst({ where: { companyId: user.companyId, kind: 'repair', deletedAt: null }, orderBy: { createdAt: 'asc' }, select: { id: true } });
+    if (!w) throw new BadRequestException('Pick the store to take parts from (no Workshop store is set up)');
+    return w.id;
   }
 
   /** Moves a job if the configured transitions allow it; returns false instead of failing the whole batch. */

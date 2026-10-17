@@ -172,7 +172,7 @@ async function main() {
   for (const d of ['Director', 'Manager', 'Accountant', 'Technician', 'Front Desk Officer', 'Store Keeper', 'Driver', 'Security Guard']) await prisma.designation.create({ data: { companyId: c, name: d } });
   await prisma.shift.create({ data: { companyId: c, name: 'General (9–5)', start: '09:00', end: '17:00' } });
   await prisma.leaveType.createMany({ data: [{ companyId: c, name: 'Annual', daysPerYear: 14, carryForward: 7, encashable: true }, { companyId: c, name: 'Casual', daysPerYear: 10 }, { companyId: c, name: 'Sick', daysPerYear: 8 }, { companyId: c, name: 'Unpaid', daysPerYear: 365, paid: false }] });
-  await prisma.warehouse.createMany({ data: [{ companyId: c, branchId: branch.id, code: 'MAIN', name: 'Main Store' }, { companyId: c, code: 'DEMO', name: 'Demo (with clients)', kind: 'demo' }, { companyId: c, code: 'SCRAP', name: 'Scrap', kind: 'scrap' }] });
+  await prisma.warehouse.createMany({ data: [{ companyId: c, branchId: branch.id, code: 'MAIN', name: 'Main Store' }, { companyId: c, code: 'DEMO', name: 'Demo (with clients)', kind: 'demo' }, { companyId: c, code: 'SCRAP', name: 'Scrap', kind: 'scrap' }, { companyId: c, branchId: branch.id, code: 'WORKSHOP', name: 'Workshop store', kind: 'repair' }] });
 
   // ─── Default workflows (edit in Admin › Workflows) ───
   const wf = (resource: string, name: string, steps: object[], conditions: object | null = null, priority = 0) =>

@@ -1,7 +1,7 @@
 'use client';
 import { Button, DataView, EmptyState, ListParams, PageHeader, Row } from '@erp/ui';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useMemo } from 'react';
 import { api, openDoc, qs } from '@/lib/api';
 import { can, useMeta, useResource } from '@/lib/meta';
@@ -13,6 +13,7 @@ export default function ListPage() {
   const r = useResource(key);
   const meta = useMeta();
   const router = useRouter();
+  const search = useSearchParams();
   const savedViews = useMemo(() => ({
     list: () => api<never[]>(`views/${key}`),
     save: (name: string, config: object) => api(`views/${key}`, 'POST', { name, config }),
@@ -21,20 +22,24 @@ export default function ListPage() {
   // Accounts have their own screen (tree + balances); the plain list would be a second, poorer copy.
   useEffect(() => { if (key === 'finance.account') router.replace('/finance/accounts'); }, [key, router]);
   if (!r) return <EmptyState title="Not available" hint="This screen doesn't exist or you don't have access." />;
-  const toQuery = (p: ListParams) => ({ page: p.page, pageSize: p.pageSize, search: p.search, sort: p.sort, filters: Object.keys(p.filters).length ? p.filters : undefined });
+  // URL parameters naming a field fix the list to that value, e.g. ?kind=part → spare parts only (menus link this way).
+  const fixed = Object.fromEntries([...search.entries()].filter(([k]) => r.fields.some((f) => f.name === k)));
+  const fixedQs = new URLSearchParams(fixed).toString();
+  const toQuery = (p: ListParams) => { const filters = { ...p.filters, ...fixed }; return { page: p.page, pageSize: p.pageSize, search: p.search, sort: p.sort, filters: Object.keys(filters).length ? filters : undefined }; };
+  const title = key === 'inventory.product' && fixed.kind === 'part' ? 'Spare parts' : r.label;
   const canCreate = r.can.create && (!r.ops || r.ops.includes('create'));
   return (
     <>
-      <PageHeader title={r.label} actions={
+      <PageHeader title={title} actions={
         <>
           {(key === 'repair.job' || key === 'repair.intake') && <Link href="/repair/intake"><Button>New intake</Button></Link>}
           {key === 'hrm.payroll' && <Link href="/hrm/payroll"><Button>Run payroll</Button></Link>}
-          {canCreate && <Link href={r.createPath ?? `/r/${key}/new`}><Button>New</Button></Link>}
+          {canCreate && <Link href={`${r.createPath ?? `/r/${key}/new`}${fixedQs ? `?${fixedQs}` : ''}`}><Button>New</Button></Link>}
         </>
       } />
       <DataView
-        id={key}
-        title={r.label}
+        id={fixedQs ? `${key}?${fixedQs}` : key}
+        title={title}
         fields={[...r.fields, ...r.customFields.map((c) => ({ name: `custom.${c.name}`, label: c.label, type: c.type === 'number' ? 'float' : c.type === 'file' ? 'string' : c.type, options: c.options ?? undefined }))]}
         defaultColumns={r.list}
         statuses={r.statuses}

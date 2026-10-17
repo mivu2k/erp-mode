@@ -294,7 +294,7 @@ export const RESOURCES: ResourceDef[] = [
 
   // ─── Inventory ─────────────────────────────────────────────
   {
-    key: 'inventory.product', model: 'Product', label: 'Products', title: 'name', subtitle: 'sku', list: ['sku', 'name', 'categoryId', 'brand', 'price', 'reorderLevel', 'isActive'],
+    key: 'inventory.product', model: 'Product', label: 'Products', title: 'name', subtitle: 'sku', list: ['sku', 'name', 'kind', 'categoryId', 'brand', 'price', 'reorderLevel', 'isActive'], enums: { kind: ['product', 'part'] },
     search: ['sku', 'barcode', 'barcodes', 'name', 'brand', 'model'], barcode: 'barcode', createPath: '/inventory/products/new', refs: { categoryId: 'core.masterdata', unitId: 'core.masterdata', taxId: 'core.masterdata' },
     restricted: ['cost'], readonly: ['cost'], printable: true,
     actions: [{ name: 'label', label: 'Print label', path: 'print/inventory.product/:id?template=label', opens: true, permission: 'inventory.product.print' }],
@@ -412,11 +412,11 @@ export const RESOURCES: ResourceDef[] = [
         fields: {
           findings: { type: 'text', required: true },
           labor: { type: 'lines', columns: { serviceId: { type: 'ref', ref: 'core.masterdata', required: true, label: 'Service', filters: { type: 'service_rate' } }, qty: { type: 'number', required: true } } },
-          parts: { type: 'lines', columns: { productId: { type: 'ref', ref: 'inventory.product', required: true, label: 'Part' }, qty: { type: 'number', required: true } } },
+          parts: { type: 'lines', columns: { productId: { type: 'ref', ref: 'inventory.product', required: true, label: 'Part', filters: { kind: 'part' } }, qty: { type: 'number', required: true } } },
         },
       },
-      { name: 'issue', label: 'Issue parts', path: 'repair/jobs/:id/issue-parts', fields: { warehouseId: { type: 'ref', ref: 'inventory.warehouse', required: true } }, permission: 'inventory.movement.create' },
-      { name: 'return-parts', label: 'Return unused parts', path: 'repair/jobs/:id/return-parts', fields: { warehouseId: { type: 'ref', ref: 'inventory.warehouse', required: true } }, permission: 'inventory.movement.create' },
+      { name: 'issue', label: 'Issue parts', path: 'repair/jobs/:id/issue-parts', fields: { warehouseId: { type: 'ref', ref: 'inventory.warehouse', label: 'Store (empty = Workshop store)' } }, permission: 'inventory.movement.create' },
+      { name: 'return-parts', label: 'Return unused parts', path: 'repair/jobs/:id/return-parts', fields: { warehouseId: { type: 'ref', ref: 'inventory.warehouse', label: 'Store (empty = Workshop store)' } }, permission: 'inventory.movement.create' },
       {
         name: 'test', label: 'Record QC test', path: 'repair/jobs/:id/test', when: ['in_repair', 'qc'],
         fields: {
