@@ -202,6 +202,17 @@ test('products: optional, multiple barcodes; any of them scans; one barcode neve
   assert.equal((await call('PATCH', `r/inventory.product/${p.id}`, { name: 'Analyzer v2' })).name, 'Analyzer v2', 'saving without touching barcodes is fine');
 });
 
+test('new product: SKU from make/model, make detected from the name, SKU unique', async () => {
+  const s1 = await call('GET', `inventory/products/suggest?${new URLSearchParams({ name: 'Motorola APX 6000 battery', model: 'APX 6000' })}`);
+  assert.equal(s1.make, 'Motorola', 'make found in the name (Motorola is on earlier jobs)');
+  assert.match(s1.sku, /^MOT-APX6000-[2-9A-HJ-NP-Z]{4}$/);
+  const s2 = await call('GET', `inventory/products/suggest?${new URLSearchParams({ name: 'Plain cable' })}`);
+  assert.equal(s2.make, null);
+  assert.match(s2.sku, /^PC-[2-9A-HJ-NP-Z]{4}$/);
+  const p = await call('POST', 'r/inventory.product', { sku: s1.sku, name: 'Motorola APX 6000 battery', brand: s1.make, price: '10' });
+  assert.equal(p.sku, s1.sku);
+});
+
 test('Gatepass: demo out → partial return → convert rest to sale', async () => {
   const gp = await call('POST', 'r/gatepass.pass', {
     type: 'demo_out', partyName: 'Client Org', customerId: ctx.customer.id, fromWarehouseId: ctx.wh, expectedReturn: '2026-10-01',

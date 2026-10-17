@@ -21,6 +21,24 @@ export function barcodeList(primary: unknown, extra: unknown): string[] {
   return [...new Set([String(primary ?? ''), ...String(extra ?? '').split(/[\s,;]+/)].map((x) => x.trim()).filter(Boolean))];
 }
 
+/** The known make a product name mentions (whole word, longest wins): "Motorola APX 6000 battery" → Motorola. */
+export function makeFromName(name: string, makes: string[]): string | null {
+  const words = ` ${name.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
+  return [...makes].sort((a, b) => b.length - a.length).find((m) => m.trim() && words.includes(` ${m.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()} `)) ?? null;
+}
+
+/**
+ * SKU from what the item is: MAKE(3)-MODEL(≤8, else name initials)-RANDOM(4), upper-case, e.g. MOT-APX6000-7K3Q.
+ * The random tail keeps codes short yet unique; the caller re-rolls on a clash.
+ */
+export function skuFor(p: { make?: string | null; model?: string | null; name?: string | null }, rand = () => Math.random()): string {
+  const clean = (v?: string | null) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, '');
+  const make = clean(p.make).slice(0, 3);
+  const model = clean(p.model).slice(0, 8) || String(p.name ?? '').toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean).map((w) => (/\d/.test(w) ? w : w[0])).join('').slice(0, 8);
+  const tail = Array.from({ length: 4 }, () => '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(rand() * 32)]).join(''); // no 0/O/1/I
+  return [make, model, tail].filter(Boolean).join('-');
+}
+
 @Controller()
 export class InventoryController {
   constructor(
@@ -98,6 +116,26 @@ export class InventoryController {
       await this.resources.setStatus(tx, user, 'inventory.adjustment', id, 'posted');
       return { posted: true };
     });
+  }
+
+  /** New product: a unique SKU from its make/model/name, and the make detected from the name if not given. */
+  @Get('inventory/products/suggest')
+  @Permissions('inventory.product.create')
+  async suggest(@CurrentUser() user: AuthUser, @Query() q: { name?: string; make?: string; model?: string }) {
+    const c = user.companyId;
+    let make = q.make?.trim() || null;
+    if (!make && q.name?.trim()) {
+      const [p, j] = await Promise.all([
+        this.prisma.product.findMany({ where: { companyId: c, brand: { not: null } }, select: { brand: true }, distinct: ['brand'], take: 2000 }),
+        this.prisma.job.findMany({ where: { companyId: c, brand: { not: null } }, select: { brand: true }, distinct: ['brand'], take: 2000 }),
+      ]);
+      make = makeFromName(q.name, [...new Set([...p, ...j].map((x) => String(x.brand).trim()))]);
+    }
+    for (let i = 0; i < 10; i++) {
+      const sku = skuFor({ make, model: q.model, name: q.name });
+      if (!(await this.prisma.product.findFirst({ where: { companyId: c, sku }, select: { id: true } }))) return { sku, make };
+    }
+    throw new BadRequestException('Could not find a free SKU; type one in');
   }
 
   @Get('inventory/low-stock')

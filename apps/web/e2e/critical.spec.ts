@@ -444,3 +444,16 @@ test('search: an unknown barcode offers to create the product with it', async ({
   await expect(page).toHaveURL(/\/inventory\/products\/new/);
   await expect(page.getByLabel('Barcode', { exact: true })).toHaveValue(code);
 });
+
+test('new product: typing the name fills make and a SKU', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  await request.post('/api/r/inventory.product', { headers: { Authorization: `Bearer ${accessToken}` }, data: { sku: `ZK-${run}`, name: 'seed', brand: `Zeko${run}`, price: '1' } });
+  await page.goto('/inventory/products/new');
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill(`Zeko${run} handheld radio`);
+  await expect(page.getByRole('textbox', { name: 'Make', exact: true })).toHaveValue(`Zeko${run}`);
+  await expect(page.getByRole('textbox', { name: 'SKU / item code', exact: true })).toHaveValue(/^ZEK-[A-Z0-9]+-[2-9A-HJ-NP-Z]{4}$/);
+  await page.getByRole('textbox', { name: 'SKU / item code', exact: true }).fill(`MY-${run}`);
+  await page.getByRole('textbox', { name: 'Model', exact: true }).fill('X1');
+  await page.waitForTimeout(700);
+  await expect(page.getByRole('textbox', { name: 'SKU / item code', exact: true })).toHaveValue(`MY-${run}`, { timeout: 1 }); // own SKU kept
+});

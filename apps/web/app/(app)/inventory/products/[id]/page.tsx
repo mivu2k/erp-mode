@@ -55,7 +55,28 @@ export default function ProductPage() {
     f.type === 'file' ? <FileField f={f} value={v} onChange={onChange} entityType={KEY} entityId={isNew ? null : id} />
     : f.type === 'files' ? <FilesField f={f} value={v} onChange={onChange} entityType={KEY} entityId={isNew ? null : id} />
     : refPicker(f, v, onChange, refs ?? rec._refs);
-  const change = (k: string, v: unknown) => { setSaved(false); setValues((s) => ({ ...s, [k]: v })); };
+  const change = (k: string, v: unknown) => {
+    setSaved(false);
+    if (k === 'sku') setAuto((a) => ({ ...a, sku: false }));
+    if (k === 'brand') setAuto((a) => ({ ...a, make: false }));
+    setValues((s) => ({ ...s, [k]: v }));
+  };
+
+  // New product: SKU and make follow the name/make/model until the user types their own (server keeps the SKU unique).
+  const [auto, setAuto] = useState(() => ({ sku: isNew && !search.get('sku'), make: isNew && !search.get('brand') }));
+  const [roll, setRoll] = useState(0);
+  const { name, brand, model } = values as { name?: string; brand?: string; model?: string };
+  useEffect(() => {
+    if (!isNew || (!auto.sku && !auto.make) || !String(name ?? '').trim()) return;
+    const t = setTimeout(() => {
+      api<{ sku: string; make: string | null }>(`inventory/products/suggest?${qs({ name, make: auto.make ? undefined : brand, model })}`).then((sg) => setValues((v) => ({
+        ...v,
+        ...(auto.sku ? { sku: sg.sku } : {}),
+        ...(auto.make && sg.make ? { brand: sg.make } : {}),
+      }))).catch(() => {});
+    }, 400);
+    return () => clearTimeout(t);
+  }, [isNew, auto, name, brand, model, roll]);
 
   const save = async () => {
     if (!r) return;
@@ -96,6 +117,13 @@ export default function ProductPage() {
               <div key={t} className="space-y-4">
                 <Card title={<span>{t}{hint && <span className="ms-2 text-xs font-normal text-muted-foreground">{hint}</span>}</span>}>
                   <FormGrid fields={fs} values={values} onChange={change} renderRef={renderRef} disabled={!canEdit} />
+                  {i === 0 && isNew && (
+                    <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                      {auto.sku ? 'SKU is made from the make, model or name.' : 'Using your own SKU.'}
+                      {auto.make && ' Make is picked up from the name.'}
+                      <button type="button" className="text-primary hover:underline" onClick={() => { setAuto((a) => ({ ...a, sku: true })); setRoll((x) => x + 1); }}>{auto.sku ? 'New SKU' : 'Generate SKU'}</button>
+                    </p>
+                  )}
                 </Card>
                 {/* Barcodes sit right after the item's identity. */}
                 {i === 0 && <Barcodes main={values.barcode} extra={values.barcodes} disabled={!canEdit} onChange={(k, v) => change(k, v)} />}
