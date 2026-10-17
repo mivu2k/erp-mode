@@ -427,3 +427,15 @@ test('intake: a known serial fills make, model, type and the owner', async ({ pa
   await expect(page.getByText(`owner: Owner ${run}`)).toBeVisible();
   await page.getByRole('button', { name: 'Clear form' }).click();
 });
+
+test('search: an unknown barcode offers to create the product with it', async ({ page }) => {
+  const code = `NEW-${run}`;
+  await page.goto('/');
+  await page.getByRole('button', { name: /Search or scan/ }).click();
+  const box = page.getByPlaceholder(/Name, number, serial/);
+  await box.fill(code);
+  await box.press('Enter');
+  await page.getByRole('button', { name: `Create product with barcode ${code}` }).click();
+  await expect(page).toHaveURL(/\/r\/inventory\.product\/new/);
+  await expect(page.getByLabel('Barcode', { exact: true })).toHaveValue(code);
+});

@@ -16,6 +16,11 @@ import { FinanceController } from './finance';
 const adjLines = z.array(z.object({ productId: z.string(), qty: z.coerce.number(), serial: z.string().nullish(), unitCost: z.coerce.number().optional() })).min(1);
 const receiveLines = z.array(z.object({ lineId: z.string(), qty: z.coerce.number().positive(), serials: z.array(z.string()).optional() })).min(1);
 
+/** A product's codes: the main barcode plus the extra ones (one per line / comma / space), de-duplicated. */
+export function barcodeList(primary: unknown, extra: unknown): string[] {
+  return [...new Set([String(primary ?? ''), ...String(extra ?? '').split(/[\s,;]+/)].map((x) => x.trim()).filter(Boolean))];
+}
+
 @Controller()
 export class InventoryController {
   constructor(
@@ -32,6 +37,23 @@ export class InventoryController {
       beforeCreate: (_c, data) => void parse(adjLines, data.lines),
       beforeUpdate: (_c, data) => void (data.lines !== undefined && parse(adjLines, data.lines)),
     });
+    // Any number of barcodes per product (none is fine), but one barcode never points at two products.
+    const checkBarcodes = async ({ tx, user }: HookCtx, data: Row, before?: Row) => {
+      if (data.barcode === undefined && data.barcodes === undefined) return;
+      const primary = data.barcode !== undefined ? data.barcode : before?.barcode;
+      const codes = barcodeList(primary, data.barcodes !== undefined ? data.barcodes : before?.barcodes);
+      if (data.barcodes !== undefined) data.barcodes = barcodeList(null, data.barcodes).filter((c) => c !== String(primary ?? '').trim()).join('\n') || null;
+      if (!codes.length) return;
+      const others = await tx.product.findMany({
+        where: { companyId: user.companyId, deletedAt: null, ...(before ? { id: { not: String(before.id) } } : {}), OR: [{ barcode: { in: codes } }, ...codes.map((c) => ({ barcodes: { contains: c } }))] },
+        select: { name: true, barcode: true, barcodes: true },
+      });
+      for (const o of others) {
+        const clash = codes.find((c) => barcodeList(o.barcode, o.barcodes).includes(c));
+        if (clash) throw new BadRequestException(`Barcode ${clash} is already on ${o.name}`);
+      }
+    };
+    hooks.on('inventory.product', { beforeCreate: (c, d) => checkBarcodes(c, d), beforeUpdate: (c, d, b) => checkBarcodes(c, d, b) });
     hooks.on('purchase.requisition', { beforeCreate: (_c, data) => void parse(z.array(z.object({ productId: z.string(), qty: z.coerce.number().positive(), jobId: z.string().nullish() })).min(1), data.lines) });
     const poTotals = (_c: HookCtx, data: Row) => {
       const lines = data.lines as Row[] | undefined;

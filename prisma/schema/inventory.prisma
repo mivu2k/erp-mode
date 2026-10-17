@@ -43,6 +43,8 @@ model Product {
   companyId    String
   sku          String
   barcode      String?
+  /// More barcodes for the same item (other suppliers, packs), one per line; all are optional
+  barcodes     String?   @db.Text
   name         String
   categoryId   String? // MasterData product_category
   brand        String?

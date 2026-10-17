@@ -188,6 +188,20 @@ test('intake lookup: a serial or asset tag seen before fills the unit and its ow
   assert.ok(o.makes.includes(`Kenwood-${run}`) && o.models.some((m: J) => m.make === `Kenwood-${run}` && m.model === 'NX-3220'), 'inventory makes/models suggested');
 });
 
+test('products: optional, multiple barcodes; any of them scans; one barcode never on two products', async () => {
+  const none = await call('POST', 'r/inventory.product', { sku: `NOBC-${run}`, name: 'No barcode item', price: '10' });
+  assert.equal(none.barcode, null, 'barcode is optional');
+  const p = await call('POST', 'r/inventory.product', { sku: `MBC-${run}`, name: 'Analyzer', price: '100', barcode: `B1-${run}`, barcodes: `B2-${run}\nB3-${run}, B2-${run}` });
+  assert.equal(p.barcodes, `B2-${run}\nB3-${run}`, 'extras cleaned to one per line, no repeats');
+  for (const code of [`B1-${run}`, `B3-${run}`]) {
+    const hits = await call('GET', `search/scan?code=${encodeURIComponent(code)}`);
+    assert.ok(hits.some((h: J) => h.entityId === p.id), `scan ${code} finds the product`);
+  }
+  await assert.rejects(call('POST', 'r/inventory.product', { sku: `DUP-${run}`, name: 'Other', price: '1', barcodes: `B3-${run}` }), /already on Analyzer/);
+  await assert.rejects(call('PATCH', `r/inventory.product/${none.id}`, { barcode: `B2-${run}` }), /already on Analyzer/);
+  assert.equal((await call('PATCH', `r/inventory.product/${p.id}`, { name: 'Analyzer v2' })).name, 'Analyzer v2', 'saving without touching barcodes is fine');
+});
+
 test('Gatepass: demo out → partial return → convert rest to sale', async () => {
   const gp = await call('POST', 'r/gatepass.pass', {
     type: 'demo_out', partyName: 'Client Org', customerId: ctx.customer.id, fromWarehouseId: ctx.wh, expectedReturn: '2026-10-01',

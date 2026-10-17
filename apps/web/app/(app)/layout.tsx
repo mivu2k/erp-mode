@@ -229,6 +229,7 @@ function SearchDialog({ open, onClose }: { open: boolean; onClose(): void }) {
   const [hits, setHits] = useState<Hit[]>([]);
   const [camera, setCamera] = useState(false);
   const [note, setNote] = useState('');
+  const [unknown, setUnknown] = useState(''); // last scanned code that matched nothing
   const video = useRef<HTMLVideoElement>(null);
   const photo = useRef<HTMLInputElement>(null);
   // Browsers only open the live camera on HTTPS (or localhost); a photo works everywhere.
@@ -245,7 +246,7 @@ function SearchDialog({ open, onClose }: { open: boolean; onClose(): void }) {
   const scan = async (code: string) => {
     const found = await api<Hit[]>(`search/scan?${qs({ code })}`);
     if (found.length === 1) go(found[0]);
-    else { setHits(found); if (!found.length) setNote(`Nothing found for “${code}”.`); }
+    else { setHits(found); setUnknown(found.length ? '' : code); if (!found.length) setNote(`Nothing found for “${code}”.`); }
   };
 
   useEffect(() => {
@@ -289,6 +290,10 @@ function SearchDialog({ open, onClose }: { open: boolean; onClose(): void }) {
       }} />
       {!liveOk && <p className="mt-2 text-xs text-muted-foreground">Live camera scanning needs HTTPS; use “Photo” to scan with the phone camera.</p>}
       {note && <p className="mt-2 text-sm text-muted-foreground" role="status">{note}</p>}
+      {/* A new item's barcode: start its product record with the code already filled in. */}
+      {unknown && can(meta, 'inventory.product.create') && (
+        <Button size="sm" variant="outline" className="mt-2" onClick={() => { onClose(); router.push(`/r/inventory.product/new?${qs({ barcode: unknown })}`); setUnknown(''); }}>Create product with barcode {unknown}</Button>
+      )}
       {camera && <video ref={video} className="mt-3 w-full rounded" muted playsInline />}
       <ul className="mt-3 divide-y divide-border">
         {hits.map((h) => (

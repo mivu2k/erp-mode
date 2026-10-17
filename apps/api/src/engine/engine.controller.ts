@@ -248,10 +248,15 @@ export class SearchController {
     const allowed = this.allowed(user);
     const hits = await this.prisma.searchIndex.findMany({ where: { companyId: user.companyId, entityType: { in: allowed }, OR: [{ barcode: code }, { title: code }] }, take: 20 });
     const serials = await this.prisma.serialItem.findMany({ where: { companyId: user.companyId, serial: code } });
+    // A product's extra barcodes (one per line); `contains` narrows, the exact split confirms.
+    const products = can(user, 'inventory.product.view') && !hits.some((h) => h.entityType === 'inventory.product')
+      ? (await this.prisma.product.findMany({ where: { companyId: user.companyId, deletedAt: null, barcodes: { contains: code } }, select: { id: true, name: true, sku: true, barcodes: true }, take: 10 }))
+        .filter((p) => (p.barcodes ?? '').split(/[\s,;]+/).includes(code)) : [];
     const jobs = (await this.prisma.job.findMany({ where: { companyId: user.companyId, OR: [{ serial: code }, { assetTag: code }], deletedAt: null }, select: { id: true, number: true, status: true, kind: true }, take: 10 }))
       .map((j) => ({ ...j, key: j.kind === 'fleet' ? 'fleet.maintenance' : 'repair.job' })).filter((j) => can(user, `${j.key}.view`));
     return [
       ...hits,
+      ...products.map((p) => ({ entityType: 'inventory.product', entityId: p.id, title: p.name, subtitle: p.sku })),
       ...(can(user, 'serials.item.view') ? serials.map((s) => ({ entityType: 'serials.item', entityId: s.id, title: s.serial, subtitle: s.status })) : []),
       ...jobs.map((j) => ({ entityType: j.key, entityId: j.id, title: j.number, subtitle: j.status })),
     ];
