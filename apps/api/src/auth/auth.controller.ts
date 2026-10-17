@@ -26,7 +26,8 @@ export class AuthController {
   }
 
   @Public()
-  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  // One refresh per page load: generous per IP (an office behind one address), still capped against abuse.
+  @Throttle({ default: { limit: Number(process.env.REFRESH_RATE_LIMIT ?? 120), ttl: 60_000 } })
   @Post('refresh')
   @HttpCode(200)
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {

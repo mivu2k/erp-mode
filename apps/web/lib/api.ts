@@ -9,6 +9,7 @@ export class ApiError extends Error {
 
 /** Flattens Nest/Zod error bodies into one readable line. */
 function messageOf(body: unknown, status: number): string {
+  if (status === 429) return 'Too many attempts from this network — wait a minute and try again.';
   // Validation errors arrive either wrapped ({ message: {fieldErrors} }) or bare ({ fieldErrors }).
   const b = body as { message?: unknown; fieldErrors?: unknown } | null;
   const m = b?.message ?? (b?.fieldErrors ? b : undefined);
@@ -25,11 +26,20 @@ const fieldName = (k: string) => { const s = k.replace(/Id$/, '').replace(/([a-z
 /** Zod's wording for a blank field reads as "required". */
 const plain = (msg: string) => (/received (null|undefined)|^Required$/i.test(msg) ? 'required' : msg);
 
+/**
+ * New access token from the refresh cookie. Only a 401 means the session is over; "too many requests" (429),
+ * server errors and dropped connections are retried, so a busy moment never signs the user out.
+ */
 export async function refresh(): Promise<boolean> {
-  refreshing ??= fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' })
-    .then(async (r) => { access = r.ok ? (await r.json()).accessToken : null; return r.ok; })
-    .catch(() => false)
-    .finally(() => { refreshing = null; });
+  refreshing ??= (async () => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      if (attempt) await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt)); // 2s, 4s, 8s
+      const r = await fetch('/api/auth/refresh', { method: 'POST', credentials: 'same-origin' }).catch(() => null);
+      if (r?.ok) { access = (await r.json()).accessToken; return true; }
+      if (r && r.status !== 429 && r.status < 500) { access = null; return false; }
+    }
+    return false;
+  })().finally(() => { refreshing = null; });
   return refreshing;
 }
 

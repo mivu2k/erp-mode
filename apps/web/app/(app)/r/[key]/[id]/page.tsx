@@ -55,7 +55,8 @@ export default function RecordPage() {
   }, [key, id, isNew]);
   useEffect(load, [load]);
   // Resources with a guided create screen send /new there.
-  useEffect(() => { if (isNew && r?.createPath) router.replace(r.createPath); }, [isNew, r, router]);
+  // A resource with its own create screen; the query (pre-fills like ?barcode=…) goes along.
+  useEffect(() => { if (isNew && r?.createPath) router.replace(`${r.createPath}${search.toString() ? `?${search}` : ''}`); }, [isNew, r, router, search]);
 
   if (!r) return <EmptyState title="Not available" />;
   if (!rec) return error ? <ErrorBox error={error} /> : <div className="space-y-3"><Skeleton className="h-10 w-72" /><Skeleton className="h-64" /></div>;

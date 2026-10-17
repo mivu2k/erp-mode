@@ -50,7 +50,8 @@ const MODULE_CONTROLLERS = [AdminController, HrmController, FinanceController, I
 
 @Module({
   imports: [
-    ThrottlerModule.forRoot([{ limit: 600, ttl: 60_000 }]),
+    // Requests per client IP per minute; raise API_RATE_LIMIT only for automated test runs (they all come from one IP).
+    ThrottlerModule.forRoot([{ limit: Number(process.env.API_RATE_LIMIT ?? 600), ttl: 60_000 }]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_ACCESS_SECRET,

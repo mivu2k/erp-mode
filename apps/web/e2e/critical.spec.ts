@@ -288,10 +288,12 @@ test('kiosk pairing by link: admin gets link + QR, opening it pairs the device',
   const link = await page.getByLabel('Pairing link').inputValue();
   expect(link).toMatch(/\/kiosk\?code=\d{6}$/);
   await expect(page.locator('dialog[open] svg').first()).toBeVisible();
-  const kiosk = await (await browser.newContext()).newPage();
+  const ctx = await browser.newContext();
+  const kiosk = await ctx.newPage();
   await kiosk.goto(link.replace(/^https?:\/\/[^/]+/, ''));
   await expect(kiosk.getByText(`Gate ${run}`)).toBeVisible();
   expect(kiosk.url()).not.toContain('code=');
+  await ctx.close(); // the paired kiosk page must not outlive this test
 });
 
 test('salary structure: employee name as title, components as an editable table', async ({ page, request }) => {
