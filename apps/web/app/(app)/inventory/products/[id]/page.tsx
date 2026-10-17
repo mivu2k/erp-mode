@@ -2,7 +2,7 @@
 import { Button, Card, cx, ErrorBox, FieldMeta, FormGrid, humanize, Input, PageHeader, RefRenderer, Skeleton, StatusBadge } from '@erp/ui';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { KeyboardEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, openDoc, qs } from '@/lib/api';
 import { can, useMeta, useResource } from '@/lib/meta';
 import { renderRef as refPicker } from '@/lib/RefPicker';
@@ -65,15 +65,19 @@ export default function ProductPage() {
   // New product: SKU and make follow the name/make/model until the user types their own (server keeps the SKU unique).
   const [auto, setAuto] = useState(() => ({ sku: isNew && !search.get('sku'), make: isNew && !search.get('brand') }));
   const [roll, setRoll] = useState(0);
+  const suggested = useRef({ sku: '', make: '' });
   const { name, brand, model } = values as { name?: string; brand?: string; model?: string };
   useEffect(() => {
     if (!isNew || (!auto.sku && !auto.make) || !String(name ?? '').trim()) return;
     const t = setTimeout(() => {
-      api<{ sku: string; make: string | null }>(`inventory/products/suggest?${qs({ name, make: auto.make ? undefined : brand, model })}`).then((sg) => setValues((v) => ({
-        ...v,
-        ...(auto.sku ? { sku: sg.sku } : {}),
-        ...(auto.make && sg.make ? { brand: sg.make } : {}),
-      }))).catch(() => {});
+      // A late answer only replaces a blank field or our own last suggestion, never what was typed meanwhile.
+      const mine = (cur: unknown, last: string) => !String(cur ?? '').trim() || cur === last;
+      api<{ sku: string; make: string | null }>(`inventory/products/suggest?${qs({ name, make: auto.make ? undefined : brand, model })}`).then((sg) => setValues((v) => {
+        const next = { ...v };
+        if (auto.sku && mine(v.sku, suggested.current.sku)) next.sku = suggested.current.sku = sg.sku;
+        if (auto.make && sg.make && mine(v.brand, suggested.current.make)) next.brand = suggested.current.make = sg.make;
+        return next;
+      })).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
   }, [isNew, auto, name, brand, model, roll]);
@@ -121,7 +125,7 @@ export default function ProductPage() {
                     <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                       {auto.sku ? 'SKU is made from the make, model or name.' : 'Using your own SKU.'}
                       {auto.make && ' Make is picked up from the name.'}
-                      <button type="button" className="text-primary hover:underline" onClick={() => { setAuto((a) => ({ ...a, sku: true })); setRoll((x) => x + 1); }}>{auto.sku ? 'New SKU' : 'Generate SKU'}</button>
+                      <button type="button" className="text-primary hover:underline" onClick={() => { suggested.current.sku = String(values.sku ?? ''); setAuto((a) => ({ ...a, sku: true })); setRoll((x) => x + 1); }}>{auto.sku ? 'New SKU' : 'Generate SKU'}</button>
                     </p>
                   )}
                 </Card>
