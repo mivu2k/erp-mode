@@ -334,6 +334,19 @@ test('one unit, several codes: any of them finds it; codes are unique; SKU is a 
   assert.ok(qr.includes('class="l q"'), 'QR labels');
 });
 
+test('product serial units: one label per unit with its codes; in-stock only; none is a clear error', async () => {
+  const p = await call('POST', 'r/inventory.product', { name: `Radio set ${run}`, brand: 'Hytera', serialized: true, price: '1' });
+  await call('POST', 'serials/register', { serials: [`U1-${run}`, `U2-${run}`], productId: p.id, codes: { [`U1-${run}`]: [`IMEI-A-${run}`] } });
+  await call('PATCH', `r/serials.item/${(await list('serials.item', { serial: `U2-${run}` }))[0].id}`, { status: 'sold' });
+  const html = async (q: string) => (await fetch(`${API}/print/inventory.product/${p.id}?template=units${q}`, { headers: { Authorization: `Bearer ${token}` } }));
+  const all = await (await html('')).text();
+  assert.equal((all.match(/class="l"/g) ?? []).length, 2);
+  assert.ok(all.includes(`IMEI-A-${run}`), "a unit's other codes print on its label");
+  assert.equal(((await (await html('&status=in_stock&code=qr')).text()).match(/class="l q"/g) ?? []).length, 1, 'in stock only, as QR');
+  const none = await call('POST', 'r/inventory.product', { name: `No units ${run}`, price: '1' });
+  assert.equal((await fetch(`${API}/print/inventory.product/${none.id}?template=units`, { headers: { Authorization: `Bearer ${token}` } })).status, 400);
+});
+
 test('Gatepass: demo out → partial return → convert rest to sale', async () => {
   const gp = await call('POST', 'r/gatepass.pass', {
     type: 'demo_out', partyName: 'Client Org', customerId: ctx.customer.id, fromWarehouseId: ctx.wh, expectedReturn: '2026-10-01',

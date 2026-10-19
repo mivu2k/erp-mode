@@ -499,3 +499,18 @@ test('products: import a CSV — preview, generated SKUs, then import', async ({
   await page.getByRole('button', { name: 'Import 2 rows' }).click();
   await expect(page.getByText('Imported:')).toBeVisible();
 });
+
+test('product: serial units with all their codes; in-stock filter; Track opens the unit', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const p = await (await request.post('/api/r/inventory.product', { headers: auth, data: { name: `Handset ${run}`, brand: 'Hytera', serialized: true, price: '1' } })).json();
+  await request.post('/api/serials/register', { headers: auth, data: { serials: [`H1-${run}`, `H2-${run}`], productId: p.id, codes: { [`H1-${run}`]: [`IMEI-H-${run}`] } } });
+  await page.goto(`/inventory/products/${p.id}`);
+  await expect(page.getByText(`IMEI-H-${run}`)).toBeVisible();
+  await expect(page.getByText(`H2-${run}`)).toBeVisible();
+  await page.getByRole('button', { name: 'In stock' }).click();
+  await expect(page.getByText(`H2-${run}`)).toBeVisible();
+  await page.getByRole('row', { name: new RegExp(`H1-${run}`) }).getByRole('link', { name: 'Track' }).click();
+  await expect(page).toHaveURL(/\/serials\?q=/);
+  await expect(page.getByRole('complementary', { name: 'Unit details' }).getByText(`H1-${run}`).first()).toBeVisible();
+});

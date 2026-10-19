@@ -374,14 +374,14 @@ export class PrintController {
   async doc(
     @CurrentUser() user: AuthUser, @Param('key') key: string, @Param('id') id: string, @Res() res: Response,
     @Query('size') size: PaperSize = 'a4', @Query('template') template?: string, @Query('format') format?: string,
-    @Query('codes') codes?: string, @Query('copies') copies?: string, @Query('code') code?: string,
+    @Query('codes') codes?: string, @Query('copies') copies?: string, @Query('code') code?: string, @Query('status') status?: string,
   ) {
-    const html = await this.html(user, key, id, size, template, { codes, copies, qr: code === 'qr' });
+    const html = await this.html(user, key, id, size, template, { codes, copies, qr: code === 'qr', status });
     return sendHtmlOrPdf(res, format, html, `${key}-${id}`, isPage(size) ? undefined : Number(size));
   }
 
   /** Printable HTML for any record (also used to attach PDFs to emails). */
-  async html(user: AuthUser, key: string, id: string, size: PaperSize = 'a4', template?: string, opts: { codes?: string; copies?: string; qr?: boolean } = {}): Promise<string> {
+  async html(user: AuthUser, key: string, id: string, size: PaperSize = 'a4', template?: string, opts: { codes?: string; copies?: string; qr?: boolean; status?: string } = {}): Promise<string> {
     assertCan(user, `${key}.print`);
     const m = this.resources.meta(key);
     const rec = await this.resources.get(user, key, id);
@@ -398,6 +398,13 @@ export class PrintController {
       const picked = opts.codes ? opts.codes.split(',').map((x) => x.trim()).filter((x) => own.includes(x)) : own;
       const n = Math.min(Math.max(Math.trunc(Number(opts.copies) || 1), 1), 200);
       return this.print.labels(String(rec.name), [rec.sku, [rec.brand, rec.model].filter(Boolean).join(' ')].filter(Boolean).join(' · '), picked.length ? picked : [String(rec.sku)], n, opts.qr);
+    }
+    // One label per serial-numbered unit of this product (optionally only those in stock), each with its other codes.
+    if (template === 'units' && key === 'inventory.product') {
+      assertCan(user, 'serials.item.view');
+      const units = await this.prisma.serialItem.findMany({ where: { companyId: user.companyId, productId: id, ...(opts.status ? { status: opts.status } : {}) }, orderBy: { serial: 'asc' }, take: 2000 });
+      if (!units.length) throw new BadRequestException(opts.status ? 'No units of this item in that state' : 'This item has no serial-numbered units');
+      return this.print.labels(String(rec.name), String(rec.sku), units.map((u) => ({ code: u.serial, sub: [`S/N ${u.serial}`, ...(u.codes ?? '').split(/\s+/).filter(Boolean)].join(' · ') })), 1, opts.qr);
     }
     if (template === 'label') return (this.print.label(title, String(m.def.subtitle ? cell(rec, m.def.subtitle) : m.def.label), code || id));
     if (template === 'idcard') {

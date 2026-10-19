@@ -155,6 +155,7 @@ export default function ProductPage() {
               </div>
             );
           })}
+          {!isNew && (rec.serialized === true || can(meta, 'serials.item.view')) && <SerialUnits id={id} serialized={rec.serialized === true} onError={setError} />}
           {extra.length > 0 && <Card title="More"><FormGrid fields={extra} values={values} onChange={change} renderRef={renderRef} disabled={!canEdit} /></Card>}
         </div>
         {!isNew && <StockPanel id={id} rec={rec} />}
@@ -193,6 +194,53 @@ function Barcodes({ main, extra, sku, disabled, onChange }: { main: unknown; ext
         {!disabled && <input aria-label="Add barcode" className="min-w-48 flex-1 bg-transparent px-1 py-1 font-mono text-xs outline-none" placeholder="Add a barcode — scan or type, then Enter" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} onBlur={add} />}
       </div>
       <p className="mt-2 text-xs text-muted-foreground">Add the maker&apos;s barcode or codes from other suppliers and packs. Each code can belong to one item only. All of them print with <b>Print labels</b>.</p>
+    </Card>
+  );
+}
+
+/** Every serial-numbered unit of this item with all its codes and where it is; export, labels, and a link into tracking. */
+function SerialUnits({ id, serialized, onError }: { id: string; serialized: boolean; onError(e: unknown): void }) {
+  const meta = useMeta();
+  const [stockOnly, setStockOnly] = useState(false);
+  const [rows, setRows] = useState<Rec[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const filters = JSON.stringify({ productId: id, ...(stockOnly ? { status: 'in_stock' } : {}) });
+  useEffect(() => {
+    setRows(null);
+    api<{ rows: Rec[]; total: number }>(`r/serials.item?${qs({ filters, pageSize: 200, sort: 'serial:asc' })}`).then((d) => { setRows(d.rows); setTotal(d.total); }).catch(() => setRows([]));
+  }, [filters]);
+  if (rows !== null && !rows.length && !stockOnly && !serialized) return null; // not a serial-tracked item
+  const where = (r: Rec) => [r._refs?.warehouseId !== '—' && r._refs?.warehouseId, r.location, r.holder && `with ${r.holder}`, r.status === 'sold' && r._refs?.customerId !== '—' && r._refs?.customerId].filter(Boolean).join(' · ') || '—';
+  const label = (code?: 'qr') => openDoc(`print/${KEY}/${id}?${qs({ template: 'units', status: stockOnly ? 'in_stock' : undefined, code })}`).catch(onError);
+  return (
+    <Card title={<span>Serial units<span className="ms-2 text-xs font-normal text-muted-foreground">{rows ? `${total}${stockOnly ? ' in stock' : ''}` : ''}</span></span>}
+      actions={<div className="flex flex-wrap items-center gap-1.5">
+        {(['All', 'In stock'] as const).map((l) => (
+          <button key={l} type="button" aria-pressed={stockOnly === (l === 'In stock')} onClick={() => setStockOnly(l === 'In stock')}
+            className={cx('rounded-full border px-2.5 py-0.5 text-xs', stockOnly === (l === 'In stock') ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground')}>{l}</button>
+        ))}
+        {can(meta, 'serials.item.export') && <Button size="sm" variant="ghost" onClick={() => openDoc(`r/serials.item/export?${qs({ format: 'xlsx', filters, columns: 'serial,codes,status,location,holder,customerId,warrantyUntil' })}`).catch(onError)}>Export</Button>}
+        {can(meta, 'inventory.product.print') && <><Button size="sm" variant="ghost" onClick={() => label()}>Labels</Button><Button size="sm" variant="ghost" onClick={() => label('qr')}>QR labels</Button></>}
+      </div>}>
+      {rows === null ? <p className="text-sm text-muted-foreground">Loading…</p> : !rows.length ? <p className="text-sm text-muted-foreground">{stockOnly ? 'No units in stock.' : 'No units registered yet — receive them on a purchase order or register them in Serial Tracking.'}</p> : (
+        <div className="-mx-5 max-h-96 overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-card text-xs uppercase tracking-wide text-muted-foreground"><tr>{['Serial', 'Other codes', 'Status', 'Where / who', 'Warranty', ''].map((h) => <th key={h} className="px-3 py-2 text-start font-medium first:ps-5">{h}</th>)}</tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={String(r.id)} className="border-t border-border/60">
+                  <td className="px-3 py-1.5 ps-5 font-mono text-xs">{String(r.serial)}</td>
+                  <td className="px-3 py-1.5 font-mono text-xs text-muted-foreground">{splitCodes(r.codes).join(' · ') || '—'}</td>
+                  <td className="px-3 py-1.5"><StatusBadge status={String(r.status)} /></td>
+                  <td className="px-3 py-1.5 text-muted-foreground">{where(r)}</td>
+                  <td className="px-3 py-1.5 text-xs tabular-nums">{r.warrantyUntil ? String(r.warrantyUntil).slice(0, 10) : '—'}</td>
+                  <td className="px-3 py-1.5 pe-5 text-end"><Link className="text-xs text-primary hover:underline" href={`/serials?${qs({ q: String(r.serial) })}`}>Track</Link></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </Card>
   );
 }

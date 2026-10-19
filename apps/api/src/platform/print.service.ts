@@ -212,11 +212,16 @@ ${sign}
   }
 
   /** A run of 50×30 mm labels, one per page (label printers cut on page breaks): each code × copies. */
-  labels(title: string, subtitle: string, codes: string[], copies: number, qr = false) {
+  labels(title: string, subtitle: string, codes: (string | { code: string; sub?: string })[], copies: number, qr = false) {
     // QR labels: code beside its text (scans from any angle, works on curved items); otherwise a Code 128 barcode.
-    const one = (code: string) => qr
-      ? `<div class="l q"><div class="qr">${this.qrSvg(code)}</div><div class="t"><b>${esc(title)}</b><div class="s">${esc(subtitle)}</div><div class="c">${esc(code)}</div></div></div>`
-      : `<div class="l"><b>${esc(title)}</b><div class="s">${esc(subtitle)}</div>${this.barcodeSvg(code)}</div>`;
+    // A code can bring its own line (e.g. a unit's other codes) in place of the shared subtitle.
+    const one = (c: string | { code: string; sub?: string }) => {
+      const code = typeof c === 'string' ? c : c.code;
+      const sub = (typeof c === 'string' ? undefined : c.sub) ?? subtitle;
+      return qr
+        ? `<div class="l q"><div class="qr">${this.qrSvg(code)}</div><div class="t"><b>${esc(title)}</b><div class="s">${esc(sub)}</div><div class="c">${esc(code)}</div></div></div>`
+        : `<div class="l"><b>${esc(title)}</b><div class="s">${esc(sub)}</div>${this.barcodeSvg(code)}</div>`;
+    };
     return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} labels</title><style>@page{size:50mm 30mm;margin:1mm}body{font:10px system-ui;margin:0;text-align:center}
 .l{height:27.5mm;overflow:hidden;break-after:page}.l:last-child{break-after:auto}.l b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s{font-size:8px}svg{width:46mm;height:14mm}
 *{box-sizing:border-box}.l{padding:.5mm 1mm}

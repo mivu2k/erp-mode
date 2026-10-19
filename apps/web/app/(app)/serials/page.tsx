@@ -3,6 +3,7 @@ import { Button, cx, Dialog, EmptyState, ErrorBox, Input, PageHeader, Select, St
 import Link from 'next/link';
 import { RefPicker } from '@/lib/RefPicker';
 import { FormEvent, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { api, openDoc, qs } from '@/lib/api';
 import { can, useMeta } from '@/lib/meta';
 
@@ -56,7 +57,8 @@ function Serials() {
   const canAct = can(meta, 'serials.item.update');
   const [summary, setSummary] = useState<Summary | null>(null);
   const [view, setView] = useState('all');
-  const [q, setQ] = useState('');
+  const linked = useSearchParams().get('q') ?? ''; // e.g. "Track" from a product's serial units
+  const [q, setQ] = useState(linked);
   const [rows, setRows] = useState<Rec[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -68,6 +70,10 @@ function Serials() {
   const refresh = () => setTick((t) => t + 1);
 
   useEffect(() => { scan.current?.focus(); }, []);
+  // Opened with ?q=SERIAL: show that unit straight away.
+  useEffect(() => {
+    if (linked) api<Lookup>(`serials/lookup?${qs({ serial: linked })}`).then((r) => r.item && setSel(r.item.id)).catch(() => {});
+  }, [linked]);
   useEffect(() => { api<Summary>('serials/summary').then(setSummary).catch(setError); }, [tick]);
   const filters = VIEWS.find((v) => v.key === view)!.filters();
   const query = qs({ search: q.trim() || undefined, filters: JSON.stringify(filters), sort: 'updatedAt:desc', pageSize: 50 });
