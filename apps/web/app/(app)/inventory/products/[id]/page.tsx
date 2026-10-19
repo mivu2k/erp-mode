@@ -171,37 +171,35 @@ export default function ProductPage() {
   );
 }
 
-/** Main barcode (printed on the label) plus any number of extra codes, as chips; all optional. Scanners type + Enter. */
+/**
+ * Every code that finds this item, as one list: the SKU first (built in, always there), then any barcodes it carries
+ * (maker's EAN, other suppliers, packs). Scan or type + Enter to add; all of them scan and print as labels.
+ */
 function Barcodes({ main, extra, sku, disabled, onChange }: { main: unknown; extra: unknown; sku: string | null; disabled: boolean; onChange(k: 'barcode' | 'barcodes', v: unknown): void }) {
   const [draft, setDraft] = useState('');
+  const own = String(main ?? '').trim();
   const codes = splitCodes(extra);
   const add = () => {
-    const fresh = splitCodes(draft).filter((c) => c !== String(main ?? '') && !codes.includes(c));
+    const fresh = splitCodes(draft).filter((c) => c !== own && c !== sku && !codes.includes(c));
     if (fresh.length) onChange('barcodes', [...codes, ...fresh].join('\n'));
     setDraft('');
   };
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') { e.preventDefault(); add(); } };
+  const chip = (c: string, note?: string, remove?: () => void) => (
+    <span key={c} className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2 py-1 font-mono text-xs">
+      {c}{note && <span className="font-sans text-[10px] text-muted-foreground">{note}</span>}
+      {remove && !disabled && <button type="button" aria-label={`Remove ${c}`} className="text-muted-foreground hover:text-foreground" onClick={remove}>✕</button>}
+    </span>
+  );
   return (
-    <Card title={<span>Barcodes<span className="ms-2 text-xs font-normal text-muted-foreground">optional · any number · each code belongs to one product only</span></span>}>
-      <div className="grid gap-4 md:grid-cols-[18rem_1fr]">
-        <label className="block text-sm">
-          <span className="mb-1 block text-xs text-muted-foreground">Main barcode (printed on the label)</span>
-          <Input aria-label="Barcode" className="font-mono" value={String(main ?? '')} disabled={disabled} placeholder={sku ? `Empty: SKU ${sku} is used` : 'Scan or type — empty uses the SKU'} onChange={(e) => onChange('barcode', e.target.value || null)} />
-        </label>
-        <div className="text-sm">
-          <span className="mb-1 block text-xs text-muted-foreground">Other barcodes (other suppliers, packs, old labels)</span>
-          <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border p-1.5">
-            {codes.map((c) => (
-              <span key={c} className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 font-mono text-xs">
-                {c}
-                {!disabled && <button type="button" aria-label={`Remove ${c}`} className="text-muted-foreground hover:text-foreground" onClick={() => onChange('barcodes', codes.filter((x) => x !== c).join('\n') || null)}>✕</button>}
-              </span>
-            ))}
-            {!disabled && <input aria-label="Add barcode" className="min-w-40 flex-1 bg-transparent px-1 py-1 font-mono text-xs outline-none" placeholder={codes.length ? 'Add another…' : 'Scan or type, then Enter'} value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} onBlur={add} />}
-            {disabled && !codes.length && <span className="px-1 text-xs text-muted-foreground">None</span>}
-          </div>
-        </div>
+    <Card title={<span>Barcodes<span className="ms-2 text-xs font-normal text-muted-foreground">scanning any of these finds this item</span></span>}>
+      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border p-1.5 text-sm">
+        {sku ? chip(sku, 'SKU · built in') : <span className="px-1 text-xs text-muted-foreground">SKU — made when you save</span>}
+        {own && own !== sku && chip(own, undefined, () => onChange('barcode', null))}
+        {codes.map((c) => chip(c, undefined, () => onChange('barcodes', codes.filter((x) => x !== c).join('\n') || null)))}
+        {!disabled && <input aria-label="Add barcode" className="min-w-48 flex-1 bg-transparent px-1 py-1 font-mono text-xs outline-none" placeholder="Add a barcode — scan or type, then Enter" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={onKey} onBlur={add} />}
       </div>
+      <p className="mt-2 text-xs text-muted-foreground">Add the maker&apos;s barcode or codes from other suppliers and packs. Each code can belong to one item only. All of them print with <b>Print labels</b>.</p>
     </Card>
   );
 }

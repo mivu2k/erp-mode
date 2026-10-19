@@ -447,7 +447,7 @@ test('search: an unknown barcode offers to create the product with it', async ({
   await box.press('Enter');
   await page.getByRole('button', { name: `Create product with barcode ${code}` }).click();
   await expect(page).toHaveURL(/\/inventory\/products\/new/);
-  await expect(page.getByLabel('Barcode', { exact: true })).toHaveValue(code);
+  await expect(page.getByRole('button', { name: `Remove ${code}` })).toBeVisible(); // the scanned code is on the new item
 });
 
 test('new product: typing the name fills brand and model; the SKU is made on save', async ({ page, request }) => {
