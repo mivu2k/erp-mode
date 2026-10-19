@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { from, interval, Observable } from 'rxjs';
 import { filter, map, startWith, switchMap } from 'rxjs/operators';
 import { MODULES, moduleOf, RESOURCE_MAP, RESOURCES } from '@erp/shared';
+import { unitByCode } from '../modules/serials';
 import { Prisma } from '@prisma/client';
 import type { Response } from 'express';
 import { randomUUID } from 'node:crypto';
@@ -247,11 +248,12 @@ export class SearchController {
     if (link && can(user, `${link[1]}.view`)) return [{ entityType: link[1], entityId: link[2], title: code }];
     const allowed = this.allowed(user);
     const hits = await this.prisma.searchIndex.findMany({ where: { companyId: user.companyId, entityType: { in: allowed }, OR: [{ barcode: code }, { title: code }] }, take: 20 });
-    const serials = await this.prisma.serialItem.findMany({ where: { companyId: user.companyId, serial: code } });
+    const unit = await unitByCode(this.prisma, user.companyId, code);
+    const serials = unit ? [unit] : [];
     // A product's extra barcodes (one per line); `contains` narrows, the exact split confirms.
     const products = can(user, 'inventory.product.view') && !hits.some((h) => h.entityType === 'inventory.product')
-      ? (await this.prisma.product.findMany({ where: { companyId: user.companyId, deletedAt: null, barcodes: { contains: code } }, select: { id: true, name: true, sku: true, barcodes: true }, take: 10 }))
-        .filter((p) => (p.barcodes ?? '').split(/[\s,;]+/).includes(code)) : [];
+      ? (await this.prisma.product.findMany({ where: { companyId: user.companyId, deletedAt: null, OR: [{ sku: code }, { barcodes: { contains: code } }] }, select: { id: true, name: true, sku: true, barcodes: true }, take: 10 }))
+        .filter((p) => p.sku === code || (p.barcodes ?? '').split(/[\s,;]+/).includes(code)) : [];
     const jobs = (await this.prisma.job.findMany({ where: { companyId: user.companyId, OR: [{ serial: code }, { assetTag: code }], deletedAt: null }, select: { id: true, number: true, status: true, kind: true }, take: 10 }))
       .map((j) => ({ ...j, key: j.kind === 'fleet' ? 'fleet.maintenance' : 'repair.job' })).filter((j) => can(user, `${j.key}.view`));
     return [
@@ -372,14 +374,14 @@ export class PrintController {
   async doc(
     @CurrentUser() user: AuthUser, @Param('key') key: string, @Param('id') id: string, @Res() res: Response,
     @Query('size') size: PaperSize = 'a4', @Query('template') template?: string, @Query('format') format?: string,
-    @Query('codes') codes?: string, @Query('copies') copies?: string,
+    @Query('codes') codes?: string, @Query('copies') copies?: string, @Query('code') code?: string,
   ) {
-    const html = await this.html(user, key, id, size, template, { codes, copies });
+    const html = await this.html(user, key, id, size, template, { codes, copies, qr: code === 'qr' });
     return sendHtmlOrPdf(res, format, html, `${key}-${id}`, isPage(size) ? undefined : Number(size));
   }
 
   /** Printable HTML for any record (also used to attach PDFs to emails). */
-  async html(user: AuthUser, key: string, id: string, size: PaperSize = 'a4', template?: string, opts: { codes?: string; copies?: string } = {}): Promise<string> {
+  async html(user: AuthUser, key: string, id: string, size: PaperSize = 'a4', template?: string, opts: { codes?: string; copies?: string; qr?: boolean } = {}): Promise<string> {
     assertCan(user, `${key}.print`);
     const m = this.resources.meta(key);
     const rec = await this.resources.get(user, key, id);
@@ -395,7 +397,7 @@ export class PrintController {
       const own = [...new Set([rec.barcode, ...String(rec.barcodes ?? '').split(/[\s,;]+/)].map((x) => String(x ?? '').trim()).filter(Boolean))];
       const picked = opts.codes ? opts.codes.split(',').map((x) => x.trim()).filter((x) => own.includes(x)) : own;
       const n = Math.min(Math.max(Math.trunc(Number(opts.copies) || 1), 1), 200);
-      return this.print.labels(String(rec.name), [rec.sku, [rec.brand, rec.model].filter(Boolean).join(' ')].filter(Boolean).join(' · '), picked.length ? picked : [String(rec.sku)], n);
+      return this.print.labels(String(rec.name), [rec.sku, [rec.brand, rec.model].filter(Boolean).join(' ')].filter(Boolean).join(' · '), picked.length ? picked : [String(rec.sku)], n, opts.qr);
     }
     if (template === 'label') return (this.print.label(title, String(m.def.subtitle ? cell(rec, m.def.subtitle) : m.def.label), code || id));
     if (template === 'idcard') {

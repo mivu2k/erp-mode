@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { barcodeList, importRow, makeFromName, skuFor } from './inventory';
+import { barcodeList, cellText, importRow, makeFromName, skuFor } from './inventory';
 
 test('product barcodes: main + extras, any separator, no blanks or repeats', () => {
   assert.deepEqual(barcodeList('111', '222\n333, 222 ;444'), ['111', '222', '333', '444']);
@@ -28,4 +28,12 @@ test('import: loose headers map to fields; kind from the sheet or the list it wa
     { name: 'APX battery', brand: 'Motorola', model: 'NNTN8128', price: '4,500', kind: 'part', serialized: 'no', barcodes: 'B1 B2' });
   assert.equal(importRow(['name'], ['Cable'], 'part').kind, 'part', 'no Type column: the list kind');
   assert.equal(importRow(['name', 'type'], ['Radio', 'Product'], 'part').kind, 'product');
+});
+
+test('import: Excel rich text, formulas and links read as their text; part/product told apart', () => {
+  assert.equal(cellText({ richText: [{ text: 'Spare ' }, { text: 'part' }] }), 'Spare part');
+  assert.equal(cellText({ formula: '"Part"', result: 'Part' }), 'Part');
+  assert.equal(cellText({ text: 'Hytera', hyperlink: 'x' }), 'Hytera');
+  const kind = (v: unknown) => importRow(['Name', 'Item Type'], ['x', v], 'product').kind;
+  assert.deepEqual([kind({ richText: [{ text: 'Spare part' }] }), kind('Parts'), kind('SP'), kind('Component'), kind('Product'), kind('Spare')], ['part', 'part', 'part', 'part', 'product', 'part']);
 });

@@ -128,6 +128,8 @@ model SerialItem {
   /// Optional: a serial can be tracked without an inventory product
   productId     String?
   serial        String
+  /// More codes on the same unit (IMEI 2, MAC, old serial…), one per line; any of them finds the unit
+  codes         String?   @db.Text
   /// Free-text identity for items not in inventory
   itemName      String?
   brand         String?

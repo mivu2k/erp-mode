@@ -208,6 +208,7 @@ function UnitPanel({ id, canAct, onClose, onChanged }: { id: string; canAct: boo
           <dl className="mt-3 space-y-1.5 text-sm">
             {([
               ['Where', [ref(unit, 'warehouseId'), unit.location].filter(Boolean).join(' · ')],
+              ['Other codes', String(unit.codes ?? '').split(/\s+/).filter(Boolean).join(' · ')],
               ['Held by', ref(unit, 'employeeId') ?? unit.holder], ['Customer', ref(unit, 'customerId')],
               ['Sold', unit.soldAt && String(unit.soldAt).slice(0, 10)], ['Supplier', ref(unit, 'vendorId')],
               ['Received', unit.receivedAt && String(unit.receivedAt).slice(0, 10)],
@@ -309,10 +310,15 @@ function Register({ onDone }: { onDone(): void }) {
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const set = (k: string, v: unknown) => setF((x) => ({ ...x, [k]: v || undefined }));
-  const serials = text.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+  // "SN | IMEI2 | MAC" = one unit with extra codes; otherwise one or more serials per line.
+  const units = text.split('\n').flatMap((line) => line.includes('|')
+    ? [line.split('|').map((x) => x.trim()).filter(Boolean)].filter((u) => u.length)
+    : line.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean).map((x) => [x]));
+  const serials = units.map((u) => u[0]);
+  const codes = Object.fromEntries(units.filter((u) => u.length > 1).map((u) => [u[0], u.slice(1)]));
   const save = async () => {
     setBusy(true); setError(null); setRes(null);
-    try { const r = await api<NonNullable<typeof res>>('serials/register', 'POST', { ...f, serials }); setRes(r); if (r.created.length) { setText(''); onDone(); } } catch (e) { setError(e); } finally { setBusy(false); }
+    try { const r = await api<NonNullable<typeof res>>('serials/register', 'POST', { ...f, serials, codes }); setRes(r); if (r.created.length) { setText(''); onDone(); } } catch (e) { setError(e); } finally { setBusy(false); }
   };
   const txt = (k: string, label: string, ph?: string) => (
     <label className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">{label}</span><Input value={String(f[k] ?? '')} placeholder={ph} onChange={(e) => set(k, e.target.value)} /></label>
@@ -320,7 +326,7 @@ function Register({ onDone }: { onDone(): void }) {
   return (
     <div className="grid gap-4 md:grid-cols-2">
       <div>
-        <Textarea rows={12} aria-label="Serial numbers to register" placeholder="Scan or paste serial numbers — one per line, or separated by spaces/commas" value={text} onChange={(e) => setText(e.target.value)} className="font-mono" />
+        <Textarea rows={12} aria-label="Serial numbers to register" placeholder={'Scan or paste serial numbers — one per line.\nA unit with more codes: SERIAL | IMEI 2 | MAC'} value={text} onChange={(e) => setText(e.target.value)} className="font-mono" />
         <p className="mt-1 text-xs text-muted-foreground">{serials.length} serial(s) · ones already registered are skipped</p>
       </div>
       <div className="space-y-3">

@@ -190,7 +190,7 @@ test('intake lookup: a serial or asset tag seen before fills the unit and its ow
 
 test('products: optional, multiple barcodes; any of them scans; one barcode never on two products', async () => {
   const none = await call('POST', 'r/inventory.product', { sku: `NOBC-${run}`, name: 'No barcode item', price: '10' });
-  assert.equal(none.barcode, null, 'barcode is optional');
+  assert.equal(none.barcode, none.sku, 'barcode is optional: without one, the SKU becomes its barcode');
   const p = await call('POST', 'r/inventory.product', { sku: `MBC-${run}`, name: 'Analyzer', price: '100', barcode: `B1-${run}`, barcodes: `B2-${run}\nB3-${run}, B2-${run}` });
   assert.equal(p.barcodes, `B2-${run}\nB3-${run}`, 'extras cleaned to one per line, no repeats');
   for (const code of [`B1-${run}`, `B3-${run}`]) {
@@ -306,6 +306,29 @@ test('products import: preview, generated SKU and brand, update by SKU, row prob
   assert.match(made.sku, /^MOT-CH1-/);
   assert.deepEqual([made.kind, made.brand, Number(made.price), made.serialized], ['part', 'Motorola', 1250, false]);
   assert.equal((await call('GET', `r/inventory.product/${old.id}`)).name, `Renamed ${run}`, 'existing SKU updated');
+});
+
+test('one unit, several codes: any of them finds it; codes are unique; SKU is a new item\'s barcode', async () => {
+  const sn = `MULTI-${run}`;
+  const r = await call('POST', 'serials/register', { serials: [sn], codes: { [sn]: [`IMEI2-${run}`, `MAC-${run}`, sn] }, itemName: 'Dual-SIM phone' });
+  assert.deepEqual(r.created, [sn]);
+  const unit = (await list('serials.item', { serial: sn }))[0];
+  assert.equal(unit.codes, `IMEI2-${run}\nMAC-${run}`, 'own serial dropped from its other codes');
+  assert.equal((await call('GET', `serials/lookup?serial=IMEI2-${run}`)).item.id, unit.id, 'lookup by a second code');
+  assert.ok((await call('GET', `search/scan?code=MAC-${run}`)).some((h: J) => h.entityId === unit.id), 'scan by a second code');
+  const { jobs } = await call('POST', 'repair/intakes', { customerId: ctx.customer.id, items: [{ serial: sn, fault: 'No signal' }] });
+  const look = await call('GET', `repair/intake-lookup?serial=MAC-${run}`);
+  assert.equal(look.unit.serial, sn, 'repair intake finds the unit by any code');
+  assert.ok(look.repairs >= 1 && jobs.length === 1);
+  await assert.rejects(call('POST', 'r/serials.item', { serial: `OTHER-${run}`, codes: `MAC-${run}` }), /already belongs to unit/);
+  const reg2 = await call('POST', 'serials/register', { serials: [`IMEI2-${run}`] });
+  assert.equal(reg2.failed.length, 1, 'a second code cannot be registered as a new unit');
+
+  const p = await call('POST', 'r/inventory.product', { name: `Self-coded ${run}`, price: '5' });
+  assert.equal(p.barcode, p.sku, 'no barcode given: the SKU is its barcode');
+  assert.ok((await call('GET', `search/scan?code=${encodeURIComponent(p.sku)}`)).some((h: J) => h.entityId === p.id));
+  const qr = await (await fetch(`${API}/print/inventory.product/${p.id}?template=labels&code=qr`, { headers: { Authorization: `Bearer ${token}` } })).text();
+  assert.ok(qr.includes('class="l q"'), 'QR labels');
 });
 
 test('Gatepass: demo out → partial return → convert rest to sale', async () => {

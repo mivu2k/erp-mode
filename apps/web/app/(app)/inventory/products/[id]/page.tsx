@@ -206,8 +206,9 @@ function LabelsDialog({ open, onClose, id, rec, onError }: { open: boolean; onCl
   const codes = [...new Set([String(rec.barcode ?? '').trim(), ...splitCodes(rec.barcodes)].filter(Boolean))];
   const [pick, setPick] = useState<string[]>(codes);
   const [copies, setCopies] = useState(1);
+  const [style, setStyle] = useState<'barcode' | 'qr'>('barcode');
   useEffect(() => { if (open) setPick(codes); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-  const print = () => openDoc(`print/${KEY}/${id}?${qs({ template: 'labels', codes: codes.length ? pick.join(',') : undefined, copies })}`).then(onClose).catch(onError);
+  const print = () => openDoc(`print/${KEY}/${id}?${qs({ template: 'labels', codes: codes.length ? pick.join(',') : undefined, copies, code: style === 'qr' ? 'qr' : undefined })}`).then(onClose).catch(onError);
   return (
     <Dialog open={open} onClose={onClose} title="Print labels" footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={codes.length > 0 && !pick.length} onClick={print}>Print {(codes.length ? pick.length : 1) * copies} label{(codes.length ? pick.length : 1) * copies === 1 ? '' : 's'}</Button></>}>
       <div className="space-y-3 text-sm">
@@ -222,6 +223,11 @@ function LabelsDialog({ open, onClose, id, rec, onError }: { open: boolean; onCl
             ))}
           </fieldset>
         ) : <p className="text-muted-foreground">This product has no barcode yet — the label will carry its SKU ({String(rec.sku)}).</p>}
+        <fieldset className="flex gap-4"><legend className="mb-1 text-xs text-muted-foreground">Print as</legend>
+          {(['barcode', 'qr'] as const).map((v) => (
+            <label key={v} className="flex items-center gap-1.5"><input type="radio" name="label-style" checked={style === v} onChange={() => setStyle(v)} />{v === 'qr' ? 'QR code' : 'Barcode'}</label>
+          ))}
+        </fieldset>
         <label className="block"><span className="mb-1 block text-xs text-muted-foreground">Copies of each</span>
           <Input type="number" min={1} max={200} value={copies} onChange={(e) => setCopies(Math.min(Math.max(Number(e.target.value) || 1, 1), 200))} className="w-28" /></label>
       </div>

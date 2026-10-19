@@ -3,6 +3,7 @@ import { docTotals, fromMinor, toMinor } from '@erp/shared';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { HookCtx, HooksService, Row } from '../engine/hooks';
+import { unitByCode } from './serials';
 import { parse, ResourceService } from '../engine/resource.service';
 import { AuditService, Tx } from '../platform/audit.service';
 import { decrypt, encrypt } from '../platform/crypto';
@@ -76,7 +77,7 @@ export class RepairController {
       for (const it of b.items) {
         const { password, ...rest } = it;
         if (it.serial && !rest.warranty) {
-          const unit = await tx.serialItem.findUnique({ where: { companyId_serial: { companyId: user.companyId, serial: it.serial } }, select: { warrantyUntil: true } });
+          const unit = await unitByCode(tx, user.companyId, it.serial);
           if (unit?.warrantyUntil && unit.warrantyUntil >= new Date(new Date().toISOString().slice(0, 10))) rest.warranty = true;
         }
         // A product link must be one of this company's products; anything else is dropped, not trusted.
@@ -624,10 +625,12 @@ export class RepairController {
     const code = raw.trim();
     if (!code) throw new BadRequestException('Serial required');
     const c = user.companyId;
-    const [job, repairs, item] = await Promise.all([
-      this.prisma.job.findFirst({ where: { companyId: c, deletedAt: null, OR: [{ serial: code }, { assetTag: code }] }, orderBy: { createdAt: 'desc' } }),
-      this.prisma.job.count({ where: { companyId: c, deletedAt: null, OR: [{ serial: code }, { assetTag: code }] } }),
-      this.prisma.serialItem.findUnique({ where: { companyId_serial: { companyId: c, serial: code } } }),
+    // Any of a unit's codes finds it; its jobs are found by the code or the unit's main serial.
+    const item = await unitByCode(this.prisma, c, code);
+    const unitJobs = { companyId: c, deletedAt: null, OR: [{ serial: code }, { assetTag: code }, ...(item ? [{ serial: item.serial }] : [])] };
+    const [job, repairs] = await Promise.all([
+      this.prisma.job.findFirst({ where: unitJobs, orderBy: { createdAt: 'desc' } }),
+      this.prisma.job.count({ where: unitJobs }),
     ]);
     // Not a known unit? It may be a product barcode (main or extra): that names the item, not the unit.
     const byBarcode = !job && !item ? (await this.prisma.product.findMany({ where: { companyId: c, deletedAt: null, OR: [{ barcode: code }, { barcodes: { contains: code } }] }, select: { id: true, name: true, brand: true, model: true, barcode: true, barcodes: true }, take: 5 }))

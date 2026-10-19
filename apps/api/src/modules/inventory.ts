@@ -45,7 +45,7 @@ export function skuFor(p: { make?: string | null; model?: string | null; name?: 
 const IMPORT_COLUMNS: Record<string, string> = {
   name: 'name', itemname: 'name', productname: 'name', description: 'name',
   sku: 'sku', code: 'sku', itemcode: 'sku', productcode: 'sku',
-  kind: 'kind', type: 'kind',
+  kind: 'kind', type: 'kind', itemtype: 'kind', producttype: 'kind', categorytype: 'kind', productorpart: 'kind', partorproduct: 'kind',
   brand: 'brand', make: 'brand', manufacturer: 'brand',
   model: 'model', barcode: 'barcode', otherbarcodes: 'barcodes', barcodes: 'barcodes',
   price: 'price', saleprice: 'price', sellingprice: 'price',
@@ -62,16 +62,29 @@ function rowError(e: unknown): string {
 }
 const yes = (v: string) => /^(y|yes|true|1|x)$/i.test(v.trim());
 
+/** A spreadsheet cell as text: Excel gives formatted cells as { richText }, formulas as { result }, links as { text }. */
+export function cellText(raw: unknown): string {
+  if (raw == null) return '';
+  if (raw instanceof Date) return raw.toISOString().slice(0, 10);
+  if (typeof raw === 'object') {
+    const o = raw as { richText?: { text: string }[]; result?: unknown; text?: unknown };
+    if (Array.isArray(o.richText)) return o.richText.map((t) => t.text).join('').trim();
+    if ('result' in o) return cellText(o.result);
+    if ('text' in o) return cellText(o.text);
+    return '';
+  }
+  return String(raw).trim();
+}
+
 /** One spreadsheet row as product fields (kind: "part"/"spare…" = part, anything else product). */
 export function importRow(headers: string[], cells: unknown[], defaultKind: 'product' | 'part'): Record<string, string> {
   const out: Record<string, string> = {};
   headers.forEach((h, i) => {
     const key = IMPORT_COLUMNS[h.toLowerCase().replace(/[^a-z]/g, '')];
-    const raw = cells[i];
-    const v = String(raw && typeof raw === 'object' && 'text' in raw ? (raw as { text: unknown }).text : raw ?? '').trim();
+    const v = cellText(cells[i]);
     if (key && v) out[key] = v;
   });
-  out.kind = out.kind ? (/^(part|spare)/i.test(out.kind) ? 'part' : 'product') : defaultKind;
+  out.kind = out.kind ? (/^(parts?|spares?|sp|spare ?parts?|components?)\b/i.test(out.kind.trim()) ? 'part' : 'product') : defaultKind;
   return out;
 }
 
@@ -115,7 +128,8 @@ export class InventoryController {
       }
       for (let i = 0; i < 10; i++) {
         const sku = skuFor({ make: data.brand as string, model: data.model as string, name: data.name as string });
-        if (!(await tx.product.findFirst({ where: { companyId: user.companyId, sku }, select: { id: true } }))) { data.sku = sku; return; }
+        // No barcode of its own: the SKU becomes its barcode, so the printed label scans straight to it.
+        if (!(await tx.product.findFirst({ where: { companyId: user.companyId, sku }, select: { id: true } }))) { data.sku = sku; data.barcode ||= sku; return; }
       }
       throw new BadRequestException('Could not make a unique SKU, try again');
     };

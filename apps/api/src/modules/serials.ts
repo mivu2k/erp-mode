@@ -24,6 +24,16 @@ export function warrantyEnd(soldAt: Date, months: number): Date {
   return new Date(Date.UTC(soldAt.getUTCFullYear(), soldAt.getUTCMonth() + months, soldAt.getUTCDate()));
 }
 
+const splitCodes = (s: string | null | undefined) => (s ?? '').split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
+
+/** The unit a scanned code belongs to: its serial, or any of its other codes (IMEI 2, MAC…). `contains` narrows, the split confirms. */
+export async function unitByCode<T extends { serial: string; codes: string | null }>(
+  db: { serialItem: { findMany(args: object): Promise<T[]> } }, companyId: string, code: string,
+): Promise<T | null> {
+  const hits = await db.serialItem.findMany({ where: { companyId, OR: [{ serial: code }, { codes: { contains: code } }] }, take: 10 });
+  return hits.find((u) => u.serial === code) ?? hits.find((u) => splitCodes(u.codes).includes(code)) ?? null;
+}
+
 export interface SerialEvent { at: Date; kind: string; title: string; detail?: string; link?: string; by?: string }
 
 const TRACKED: [string, string][] = [['status', 'Status'], ['location', 'Location'], ['holder', 'Holder'], ['customerId', 'Customer'], ['warrantyUntil', 'Warranty until']];
@@ -36,6 +46,8 @@ const trackDetail = (r: Record<string, unknown>) => [r.itemName, [r.brand, r.mod
 
 const registerSchema = z.object({
   serials: z.array(z.string().trim().min(1).max(191)).min(1).max(1000),
+  /** Extra codes per serial (IMEI 2, MAC…), e.g. { "SN1": ["IMEI2"] }. */
+  codes: z.record(z.array(z.string().trim().min(1).max(191)).max(20)).optional(),
   productId: z.string().optional(), itemName: z.string().max(191).optional(), brand: z.string().max(191).optional(), model: z.string().max(191).optional(),
   status: z.enum(STATUSES).optional(), location: z.string().max(191).optional(), holder: z.string().max(191).optional(),
   customerId: z.string().optional(), warrantyUntil: z.string().optional(), notes: z.string().optional(),
@@ -54,9 +66,20 @@ export class SerialsController {
     const checkStatus = (_: unknown, data: Record<string, unknown>) => {
       if (data.status != null && !(STATUSES as readonly string[]).includes(String(data.status))) throw new BadRequestException(`Unknown status "${data.status}"`);
     };
+    // Other codes: one per line, never the unit's own serial, and never a code another unit already answers to.
+    const checkCodes = async ({ tx, user }: { tx: Tx; user: AuthUser }, data: Record<string, unknown>, before?: Record<string, unknown>) => {
+      if (data.codes === undefined && data.serial === undefined) return;
+      const serial = String(data.serial ?? before?.serial ?? '');
+      const codes = [...new Set(splitCodes(String(data.codes !== undefined ? data.codes ?? '' : before?.codes ?? '')))].filter((c) => c !== serial);
+      if (data.codes !== undefined) data.codes = codes.join('\n') || null;
+      for (const code of [serial, ...codes].filter(Boolean)) {
+        const other = await unitByCode(tx, user.companyId, code);
+        if (other && other.id !== before?.id) throw new BadRequestException(`${code} already belongs to unit ${other.serial}`);
+      }
+    };
     hooks.on('serials.item', {
-      beforeCreate: checkStatus,
-      beforeUpdate: checkStatus,
+      beforeCreate: async (c, d) => { checkStatus(c, d); await checkCodes(c, d); },
+      beforeUpdate: async (c, d, b) => { checkStatus(c, d); await checkCodes(c, d, b); },
       afterCreate: async ({ tx, user }, rec) => { await tx.serialEvent.create({ data: { companyId: user.companyId, serialItemId: String(rec.id), serial: String(rec.serial), userId: user.id, title: 'Registered', detail: trackDetail(rec) } }); },
       afterUpdate: async ({ tx, user, body }, rec, before) => {
         // Quick actions (POST serials/:id/action) pass their label and note through the raw body.
@@ -78,13 +101,13 @@ export class SerialsController {
     const b = parse(registerSchema, body);
     const serials = [...new Set(b.serials)];
     const existing = new Set((await this.prisma.serialItem.findMany({ where: { companyId: user.companyId, serial: { in: serials } }, select: { serial: true } })).map((s) => s.serial));
-    const { serials: _s, ...shared } = b;
+    const { serials: _s, codes: _c, ...shared } = b;
     if (b.productId && !b.warrantyUntil) shared.warrantyUntil = warrantyEnd(new Date(), await this.warrantyMonths(this.prisma, user.companyId, b.productId)).toISOString().slice(0, 10);
     const created: string[] = [];
     const failed: { serial: string; error: string }[] = [];
     // ponytail: one transaction per serial (resource create owns its tx); failures are reported, not rolled back.
     for (const serial of serials.filter((s) => !existing.has(s))) {
-      try { await this.resources.create(user, 'serials.item', { ...shared, serial }); created.push(serial); } catch (e) { failed.push({ serial, error: e instanceof Error ? e.message : String(e) }); }
+      try { await this.resources.create(user, 'serials.item', { ...shared, ...(b.codes?.[serial]?.length ? { codes: b.codes[serial].join('\n') } : {}), serial }); created.push(serial); } catch (e) { failed.push({ serial, error: e instanceof Error ? e.message : String(e) }); }
     }
     return { created, existing: [...existing], failed };
   }
@@ -206,12 +229,12 @@ export class SerialsController {
   async lookup(@CurrentUser() user: AuthUser, @Query('serial') raw = '') {
     const serial = raw.trim();
     if (!serial) throw new NotFoundException();
-    const item = await this.prisma.serialItem.findUnique({ where: { companyId_serial: { companyId: user.companyId, serial } } });
+    const item = await unitByCode(this.prisma, user.companyId, serial);
     const rec = item ? await this.resources.get(user, 'serials.item', item.id) : null;
-    const history = await this.history(user, serial);
+    const history = await this.history(user, item?.serial ?? serial);
     if (!rec && !history.length) throw new NotFoundException(`No record of serial ${serial}`);
     const product = rec?.productId ? await this.prisma.product.findUnique({ where: { id: String(rec.productId) }, select: { id: true, sku: true, name: true, brand: true, model: true } }) : null;
-    return { serial, item: rec, product, warranty: warrantyStatus(item?.warrantyUntil), history };
+    return { serial: item?.serial ?? serial, item: rec, product, warranty: warrantyStatus(item?.warrantyUntil), history };
   }
 
   @Get(':id/history-page')
