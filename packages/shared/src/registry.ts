@@ -431,7 +431,7 @@ export const RESOURCES: ResourceDef[] = [
           audioOk: { type: 'bool' }, firmwareAfter: { type: 'string' }, pass: { type: 'bool', required: true }, notes: { type: 'text' },
         },
       },
-      { name: 'invoice', label: 'Create invoice', path: 'repair/jobs/:id/invoice', when: ['approved', 'parts_pending', 'in_repair', 'qc', 'ready', 'delivered', 'returned_unrepaired', 'not_repairable'], permission: 'repair.invoice.create' },
+      { name: 'invoice', label: 'Create invoice', path: 'repair/jobs/:id/invoice', when: ['ready', 'delivered', 'returned_unrepaired', 'not_repairable', 'declined'], permission: 'repair.invoice.create' },
       { name: 'deliver', label: 'Deliver', path: 'repair/jobs/:id/deliver', when: ['ready', 'returned_unrepaired', 'not_repairable', 'declined'], fields: { receivedBy: { type: 'string' } } },
       { name: 'comeback', label: 'Open comeback job', path: 'repair/jobs/:id/comeback', when: ['delivered', 'closed'], fields: { fault: { type: 'text', required: true } }, permission: 'repair.job.create' },
       { name: 'tag', label: 'Print job tag', path: 'print/repair.job/:id?template=label', opens: true, permission: 'repair.job.print' },

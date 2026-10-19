@@ -45,7 +45,7 @@ export function JobFlow({ rec, jobId, actions, onAction }: { rec: Rec; jobId: st
       case 'assigned': case 'diagnosing': return { title: 'Diagnose and quote', text: 'Record the findings and the parts and labour needed — a quotation is prepared from them.', buttons: job('diagnose', 'status') };
       case 'diagnosed': return { title: 'Send the quotation to the customer', text: 'Review the quotation, then mark it sent (or record the customer’s answer if you already have it).', buttons: [...q, ...job('diagnose', 'status')] };
       case 'quotation_sent': return { title: 'Waiting for the customer’s decision', text: 'Record whether the customer accepted or declined the quotation.', buttons: q };
-      case 'approved': case 'parts_pending': return { title: 'Issue the parts and start the repair', text: 'Issue the reserved parts from the store in the Parts card below. Labour-only jobs can go straight to the QC test.', buttons: job('test', 'invoice') };
+      case 'approved': case 'parts_pending': return { title: 'Issue the parts and start the repair', text: 'Issue the reserved parts from the store in the Parts card below. Labour-only jobs can go straight to the QC test. The invoice comes once the unit is ready.', buttons: job('test') };
       case 'in_repair': return { title: 'Repair, then test', text: 'When the work is done, record the bench / QC test. A pass makes the unit ready for pickup.', buttons: job('test', 'status') };
       case 'qc': return { title: 'Record the QC test', text: 'A pass makes the unit ready; a fail sends it back to repair.', buttons: job('test') };
       case 'ready': return invoice

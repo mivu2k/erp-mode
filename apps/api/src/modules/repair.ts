@@ -36,6 +36,9 @@ export function splitIncome(lines: QuoteLine[], discount: number) {
   return { ...t, laborNet, partsNet: net - laborNet };
 }
 
+/** Statuses where the work is over and the job can be billed. */
+const INVOICEABLE = ['ready', 'delivered', 'closed', 'returned_unrepaired', 'not_repairable', 'declined'];
+
 @Controller()
 export class RepairController {
   constructor(
@@ -356,6 +359,8 @@ export class RepairController {
     return this.prisma.$transaction(async (tx) => {
       const job = await this.job(tx, user, id);
       if (!job.customerId) throw new BadRequestException('Job has no customer');
+      // Bill after the work: a repair is invoiced once it passed QC (ready), or when it goes back unrepaired.
+      if (!INVOICEABLE.includes(job.status)) throw new BadRequestException(`Finish the repair first — a job is invoiced once it is ready (now ${job.status.replace(/_/g, ' ')})`);
       if ((await this.invoicedJobs(tx, user.companyId, [id])).size) throw new BadRequestException('Job is already invoiced');
       const q = b.lines ? null : await tx.quotation.findFirst({ where: { jobId: id, status: 'accepted' }, orderBy: { version: 'desc' } });
       const lines = b.lines ?? (q?.lines as unknown as QuoteLine[] | undefined);
@@ -524,8 +529,7 @@ export class RepairController {
       const { intake, jobs } = await this.intakeJobs(tx, user, id);
       const billed = await this.invoicedJobs(tx, user.companyId, jobs.map((j) => j.id));
       // Only units whose work has progressed are billed; untouched units wait for their own quote/work.
-      const billable = ['in_repair', 'qc', 'ready', 'delivered', 'closed', 'returned_unrepaired', 'not_repairable'];
-      const open = jobs.filter((j) => !billed.has(j.id) && billable.includes(j.status));
+      const open = jobs.filter((j) => !billed.has(j.id) && INVOICEABLE.includes(j.status));
       if (!open.length) throw new BadRequestException('No unit of this intake is ready to invoice (or all are already invoiced)');
       const intakeQuote = await tx.quotation.findFirst({ where: { intakeId: id, status: 'accepted' }, orderBy: { version: 'desc' } });
       const iq = (intakeQuote?.lines as unknown as QuoteLine[] | undefined) ?? [];

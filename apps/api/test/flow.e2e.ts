@@ -158,7 +158,7 @@ test('Repair: intake → diagnose/quote → accept → issue → invoice → pay
   ctx.customer = cust;
 });
 
-test('repair: re-diagnosis keeps the earlier findings; an accepted quotation invoices straight away', async () => {
+test('repair: re-diagnosis keeps the earlier findings; the accepted quotation is invoiced once the repair is done', async () => {
   const { jobs } = await call('POST', 'repair/intakes', { customerId: ctx.customer.id, items: [{ productType: 'Handheld radio', brand: 'Motorola', model: 'XPR 3300', fault: 'No power' }] });
   const jobId = jobs[0].id;
   await call('POST', `repair/jobs/${jobId}/diagnose`, { findings: 'Battery contacts corroded', labor: [{ serviceId: ctx.labor, qty: 1 }] });
@@ -168,6 +168,8 @@ test('repair: re-diagnosis keeps the earlier findings; an accepted quotation inv
   assert.deepEqual(diag.history.map((h: J) => h.findings), ['Battery contacts corroded'], 'earlier diagnosis kept');
   await call('POST', `repair/quotations/${d2.quotation.id}/decision`, { accepted: true, via: 'phone' });
   assert.equal((await call('GET', `r/repair.job/${jobId}`)).status, 'approved');
+  await assert.rejects(call('POST', `repair/quotations/${d2.quotation.id}/invoice`), /Finish the repair first/, 'no invoice before the work');
+  await call('POST', `repair/jobs/${jobId}/test`, { pass: true, rfPowerW: 5 });
   const inv = await call('POST', `repair/quotations/${d2.quotation.id}/invoice`);
   assert.equal(Number(inv.total), 3000, 'invoice carries the accepted quotation (2 × labour)');
   assert.equal(inv.jobId, jobId);
