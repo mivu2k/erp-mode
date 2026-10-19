@@ -384,13 +384,29 @@ test('Attendance: pair kiosk → NFC punch (idempotent) → process day', async 
   await call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}`, at: `${day0}T12:10:00Z`, idempotencyKey: `k2-${run}` }, h); // 17:10 PKT
   token = saved;
   await call('POST', 'hrm/attendance/process', { date: day0 });
+  // An employee checks in from the app by scanning the kiosk's rotating QR (only where that method is on).
+  const qrStation = await call('POST', 'r/hrm.station', { name: `Scan ${run}`, methods: ['rotating_qr'] });
+  const { code: qc } = await call('POST', `hrm/kiosk/stations/${qrStation.id}/pairing-code`);
+  const saved2 = token;
+  token = '';
+  const qh = { 'x-device-token': (await call('POST', 'hrm/kiosk/pair', { code: qc })).deviceToken };
+  const { payload } = await call('GET', 'hrm/kiosk/qr', undefined, qh);
+  token = (await call('POST', 'auth/login', { login: `ali.${run}@erp.local`, password: 'Secret123' })).accessToken;
+  const scanned = await call('POST', 'hrm/attendance/scan', { payload, idempotencyKey: `scan-${run}` });
+  assert.equal(scanned.station, `Scan ${run}`);
+  await assert.rejects(call('POST', 'hrm/attendance/scan', { payload: payload.replace(/:[^:]+$/, ':000000') }), /expired/);
+  token = saved2;
+  await call('PATCH', `r/hrm.station/${qrStation.id}`, { methods: ['nfc'] });
+  token = (await call('POST', 'auth/login', { login: `ali.${run}@erp.local`, password: 'Secret123' })).accessToken;
+  await assert.rejects(call('POST', 'hrm/attendance/scan', { payload }), /not enabled/);
+  token = saved2;
   await call('POST', `hrm/kiosk/stations/${st.id}/unpair`);
   await assert.rejects(call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}` }, h), /401/, 'an unpaired device is refused');
   // The day processed above, not whichever row is newest (the nightly job also marks today's attendance).
   const day = (await list('hrm.attendance', { employeeId: ctx.emp.id, date: day0 }))[0];
   assert.equal(day.status, 'late');
   assert.equal(day.lateMin, 25);
-  assert.equal((await list('hrm.punch', { employeeId: ctx.emp.id })).length, 2);
+  assert.equal((await list('hrm.punch', { employeeId: ctx.emp.id })).length, 3, '2 at the kiosk (the replay is not counted twice) + 1 app check-in');
 });
 
 test('Payroll: generate → approve → post → pay; salary advance recovered', async () => {

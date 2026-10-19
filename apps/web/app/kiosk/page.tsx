@@ -179,7 +179,7 @@ export default function Kiosk() {
     </ThemeProvider>
   );
 
-  const hints = [methods.includes('nfc') && 'Tap your card', methods.includes('qr') && 'Show your QR code to the camera', methods.includes('rotating_qr') && 'Or scan this code with the app'].filter(Boolean) as string[];
+  const hints = [methods.includes('nfc') && 'Tap your card', methods.includes('qr') && 'Show your QR code to the camera', methods.includes('rotating_qr') && 'Or, in the ERP app: My HR › Check in at a kiosk, and scan this code'].filter(Boolean) as string[];
   return (
     <ThemeProvider>
       <main className="flex min-h-screen select-none flex-col" onContextMenu={(e) => e.preventDefault()}>

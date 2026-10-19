@@ -332,6 +332,8 @@ test('My HR page shows my own profile, leave, pay and requests', async ({ page }
   await expect(page.getByText('Paid leave remaining')).toBeVisible();
   await expect(page.getByText('Payslips', { exact: true })).toBeVisible();
   await page.screenshot({ path: 'test-results/me.png', fullPage: true });
+  await page.getByRole('button', { name: 'Check in at a kiosk' }).click();
+  await expect(page.getByRole('button', { name: 'Scan from a photo' })).toBeVisible(); // the scanner is open
 });
 
 test('guided expense claim: New goes to the claim form, live total, save draft', async ({ page }) => {

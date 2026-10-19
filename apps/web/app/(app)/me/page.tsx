@@ -56,6 +56,8 @@ export default function MyHr() {
     <>
       <PageHeader title={`My HR${me ? ` — ${me.name}` : ''}`} subtitle="Your profile, leave, attendance, pay, tasks, claims and advances"
         actions={<>
+          {/* Opens the scanner: point the camera (or take a photo) at a kiosk's rotating QR to check in. */}
+          <Button onClick={() => window.dispatchEvent(new Event('erp:scan'))}>Check in at a kiosk</Button>
           {can(meta, 'hrm.employee.print') && <Button variant="outline" onClick={() => openDoc(`print/hrm.employee/${empId}?template=idcard`)}>My ID card</Button>}
           <Link href={`/r/hrm.employee/${empId}`}><Button variant="outline">My profile</Button></Link>
         </>} />

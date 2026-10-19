@@ -95,8 +95,11 @@ function Shell({ children }: { children: ReactNode }) {
   }, []);
   useEffect(() => {
     const k = (e: KeyboardEvent) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setSearch(true); } };
+    // Other screens (e.g. My HR › Check in at a kiosk) open the scanner with this event.
+    const open = () => setSearch(true);
+    window.addEventListener('erp:scan', open);
     addEventListener('keydown', k);
-    return () => removeEventListener('keydown', k);
+    return () => { removeEventListener('keydown', k); window.removeEventListener('erp:scan', open); };
   }, []);
   useEffect(() => setNav(false), [path]);
 
@@ -235,6 +238,15 @@ function SearchDialog({ open, onClose }: { open: boolean; onClose(): void }) {
   }, [q]);
 
   const scan = async (code: string) => {
+    // A kiosk's rotating QR: check in at that kiosk instead of searching.
+    if (code.startsWith('ERPKIOSK:')) {
+      setHits([]); setUnknown('');
+      try {
+        const r = await api<{ station: string; at: string }>('hrm/attendance/scan', 'POST', { payload: code, idempotencyKey: crypto.randomUUID() });
+        setNote(`✓ Checked in at ${r.station} — ${new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+      } catch (e) { setNote(`✕ ${e instanceof Error ? e.message : 'Check-in failed'}`); }
+      return;
+    }
     const found = await api<Hit[]>(`search/scan?${qs({ code })}`);
     if (found.length === 1) go(found[0]);
     else { setHits(found); setUnknown(found.length ? '' : code); if (!found.length) setNote(`Nothing found for “${code}”.`); }

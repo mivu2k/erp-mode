@@ -203,14 +203,17 @@ export class HrmController {
   @Post('attendance/scan')
   async scanKiosk(@CurrentUser() user: AuthUser, @Body() body: { payload?: string; idempotencyKey?: string }) {
     const [prefix, stationId, code] = String(body?.payload ?? '').split(':');
-    if (prefix !== 'ERPKIOSK' || !user.employeeId) throw new BadRequestException('Not a kiosk code');
-    const st = await this.prisma.kioskStation.findFirst({ where: { id: stationId, companyId: user.companyId, isActive: true } });
+    if (prefix !== 'ERPKIOSK') throw new BadRequestException('Not a kiosk code');
+    if (!user.employeeId) throw new BadRequestException('Your login is not linked to an employee record — ask HR');
+    const st = await this.prisma.kioskStation.findFirst({ where: { id: stationId, companyId: user.companyId, isActive: true, deletedAt: null } });
     if (!st?.secret) throw new BadRequestException('Unknown station');
+    if (!(st.methods as string[]).includes('rotating_qr')) throw new BadRequestException('Scanning is not enabled at this station');
     const { rotatingQrSeconds: w } = await this.settings.get(user.companyId, 'hrm.kiosk');
     const now = Date.now();
     if (![now, now - w * 1000].some((t) => rotatingCode(st.secret!, t, w) === code)) throw new BadRequestException('QR expired, scan again');
-    await this.savePunch({ companyId: user.companyId, employeeId: user.employeeId, stationId: st.id, method: 'rotating_qr', at: new Date(), idempotencyKey: body.idempotencyKey });
-    return { ok: true };
+    const at = new Date();
+    await this.savePunch({ companyId: user.companyId, employeeId: user.employeeId, stationId: st.id, method: 'rotating_qr', at, idempotencyKey: body.idempotencyKey });
+    return { ok: true, station: st.name, at };
   }
 
   /** Mobile punch with GPS; must be inside some station's geofence. */
