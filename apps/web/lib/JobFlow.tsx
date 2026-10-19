@@ -36,7 +36,7 @@ export function JobFlow({ rec, jobId, actions, onAction }: { rec: Rec; jobId: st
   const unpaid = invoice && Number(invoice.paid ?? 0) < Number(invoice.total ?? 0);
 
   // The next step in words, with its button(s): job actions run here, document steps open the document.
-  const next: { title: string; text: string; buttons: (ActionDef | { label: string; href: string })[] } = (() => {
+  const next: { title: string; text: string; buttons: (ActionDef | { label: string; href: string } | { label: string; run(): void })[] } = (() => {
     const job = (...names: string[]) => names.map(act).filter((a): a is ActionDef => !!a);
     const q = quote ? [{ label: `Open quotation ${quote.number}`, href: `/r/repair.quotation/${quote.id}` }] : [];
     const inv = invoice ? [{ label: `Open invoice ${invoice.number}`, href: `/r/repair.invoice/${invoice.id}` }] : [];
@@ -45,7 +45,8 @@ export function JobFlow({ rec, jobId, actions, onAction }: { rec: Rec; jobId: st
       case 'assigned': case 'diagnosing': return { title: 'Diagnose and quote', text: 'Record the findings and the parts and labour needed — a quotation is prepared from them.', buttons: job('diagnose', 'status') };
       case 'diagnosed': return { title: 'Send the quotation to the customer', text: 'Review the quotation, then mark it sent (or record the customer’s answer if you already have it).', buttons: [...q, ...job('diagnose', 'status')] };
       case 'quotation_sent': return { title: 'Waiting for the customer’s decision', text: 'Record whether the customer accepted or declined the quotation.', buttons: q };
-      case 'approved': case 'parts_pending': return { title: 'Issue the parts and start the repair', text: 'Issue the reserved parts from the store in the Parts card below. Labour-only jobs can go straight to the QC test. The invoice comes once the unit is ready.', buttons: job('test') };
+      case 'approved': case 'parts_pending': return { title: 'Issue the parts and start the repair', text: 'Issue the parts from the store — the job moves to “in repair”. No parts (labour only)? Do the work, then record the QC test. The invoice comes once the unit is ready.',
+        buttons: [{ label: 'Issue parts', run: () => window.dispatchEvent(new Event('job:issue-parts')) }, ...job('test')] };
       case 'in_repair': return { title: 'Repair, then test', text: 'When the work is done, record the bench / QC test. A pass makes the unit ready for pickup.', buttons: job('test', 'status') };
       case 'qc': return { title: 'Record the QC test', text: 'A pass makes the unit ready; a fail sends it back to repair.', buttons: job('test') };
       case 'ready': return invoice
@@ -86,6 +87,7 @@ export function JobFlow({ rec, jobId, actions, onAction }: { rec: Rec; jobId: st
         <div className="flex flex-wrap gap-2">
           {next.buttons.map((b, i) => 'href' in b
             ? <Link key={b.href} href={b.href}><Button variant={i === 0 ? undefined : 'outline'}>{b.label}</Button></Link>
+            : 'run' in b ? <Button key={b.label} variant={i === 0 ? undefined : 'outline'} onClick={b.run}>{b.label}</Button>
             : <Button key={b.name} variant={i === 0 ? undefined : b.name === 'status' ? 'ghost' : 'outline'} onClick={() => onAction(b)}>{b.label}</Button>)}
         </div>
       </div>

@@ -26,7 +26,15 @@ export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): vo
   const [busy, setBusy] = useState(false);
   const load = useCallback(() => api<Data>(`repair/jobs/${jobId}/parts`).then(setD).catch(setError), [jobId]);
   useEffect(() => { load(); }, [load]);
-  if (!d || (!d.parts.length && !d.movements.length)) return null; // nothing reserved for this job (yet)
+  // "Issue parts" from the job's next-step panel opens the form here.
+  useEffect(() => {
+    const open = () => { setMode('issue'); document.getElementById('job-parts')?.scrollIntoView({ behavior: 'smooth' }); };
+    window.addEventListener('job:issue-parts', open);
+    return () => window.removeEventListener('job:issue-parts', open);
+  }, []);
+  if (!d) return null;
+  if (!d.parts.length && !d.movements.length) // nothing reserved for this job
+    return mode === 'issue' ? <div id="job-parts"><Card title="Parts"><p className="text-sm text-muted-foreground">The accepted quotation has no parts — this is a labour-only job. Do the work, then record the QC test.</p></Card></div> : null;
 
   const toIssue = d.parts.filter((p) => p.toIssue > 0);
   const inUse = d.parts.filter((p) => p.inUse > 0);
@@ -41,7 +49,7 @@ export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): vo
   );
 
   return (
-    <Card title={<span>Parts<span className="ms-2 text-xs font-normal text-muted-foreground">from the accepted quotation</span></span>}
+    <div id="job-parts"><Card title={<span>Parts<span className="ms-2 text-xs font-normal text-muted-foreground">from the accepted quotation</span></span>}
       actions={canMove && !mode ? <div className="flex gap-1.5">
         {toIssue.length > 0 && <Button size="sm" onClick={() => setMode('issue')}>Issue parts</Button>}
         {inUse.length > 0 && <Button size="sm" variant="outline" onClick={() => { setBack(Object.fromEntries(inUse.map((p) => [p.id, String(p.inUse)]))); setMode('return'); }}>Return unused</Button>}
@@ -74,6 +82,8 @@ export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): vo
       {mode === 'issue' && (
         <div className="mt-3 space-y-3 rounded-lg border border-dashed border-border p-3">
           <div className="text-sm font-semibold">Issue parts to this job</div>
+          {!canMove && <p className="text-sm" style={{ color: 'var(--tone-amber)' }}>You don’t have the right to move stock — ask the store keeper to issue these parts.</p>}
+          {!toIssue.length && <p className="text-sm text-muted-foreground">Everything reserved is already issued.</p>}
           {storePicker}
           {toIssue.filter((p) => p.serialized).map((p) => (
             <label key={p.id} className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">Serial number(s) of {p.name} — {n(p.toIssue)} needed</span>
@@ -81,7 +91,7 @@ export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): vo
           ))}
           <p className="text-xs text-muted-foreground">Issues {toIssue.map((p) => `${n(p.toIssue)} × ${p.name}`).join(', ')}. The job moves to “in repair”.</p>
           <div className="flex gap-2">
-            <Button size="sm" disabled={busy} onClick={() => run('issue-parts', { serials: Object.fromEntries(Object.entries(serials).map(([k, v]) => [k, v.split(/[\s,;]+/).filter(Boolean)]).filter(([, v]) => v.length)) })}>{busy ? 'Issuing…' : 'Issue'}</Button>
+            <Button size="sm" disabled={busy || !canMove || !toIssue.length} onClick={() => run('issue-parts', { serials: Object.fromEntries(Object.entries(serials).map(([k, v]) => [k, v.split(/[\s,;]+/).filter(Boolean)]).filter(([, v]) => v.length)) })}>{busy ? 'Issuing…' : 'Issue'}</Button>
             <Button size="sm" variant="ghost" onClick={() => setMode(null)}>Cancel</Button>
           </div>
         </div>
@@ -116,6 +126,6 @@ export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): vo
           </ul>
         </>
       )}
-    </Card>
+    </Card></div>
   );
 }

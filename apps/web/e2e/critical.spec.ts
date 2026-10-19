@@ -540,3 +540,16 @@ test('repair job page: workflow stepper and next step', async ({ page, request }
   await expect(page.getByRole('button', { name: 'Edit details' })).toBeVisible();
   await page.screenshot({ path: 'test-results/job-flow.png', fullPage: true });
 });
+
+test('repair job: Issue parts in the next step opens the issue form', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const cust = await (await request.post('/api/r/sales.customer', { headers: auth, data: { name: `Parts ${run}` } })).json();
+  const { jobs } = await (await request.post('/api/repair/intakes', { headers: auth, data: { customerId: cust.id, items: [{ productType: 'Handheld radio', fault: 'No audio' }] } })).json();
+  const part = await (await request.post('/api/r/inventory.product', { headers: auth, data: { name: `Speaker ${run}`, kind: 'part', price: '500' } })).json();
+  const d = await (await request.post(`/api/repair/jobs/${jobs[0].id}/diagnose`, { headers: auth, data: { findings: 'Speaker torn', parts: [{ productId: part.id, qty: 1 }] } })).json();
+  await request.post(`/api/repair/quotations/${d.quotation.id}/decision`, { headers: auth, data: { accepted: true, via: 'phone' } });
+  await page.goto(`/r/repair.job/${jobs[0].id}`);
+  await page.getByRole('button', { name: 'Issue parts' }).first().click();
+  await expect(page.getByText('Issue parts to this job')).toBeVisible();
+});
