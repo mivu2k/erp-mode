@@ -9,6 +9,7 @@ import { fromMinor, IMMUTABLE, nextInstallment, toMinor, type ActionField } from
 import { renderRef as refPicker } from '@/lib/RefPicker';
 import { Attachments, FileField, FilesField } from '@/lib/FilePanel';
 import { UserRoles } from '@/lib/UserRoles';
+import { JobFlow } from '@/lib/JobFlow';
 import { JobParts } from '@/lib/JobParts';
 import { UtilityBillDialog } from '@/lib/UtilityBillDialog';
 import { ClaimProgress, DiagnosisHistory, DocHeader, RepairUnit, JournalLines, JsonLines, objectList, ReadDetails, ReadLines } from '@/lib/ReadView';
@@ -39,6 +40,7 @@ export default function RecordPage() {
   const [tab, setTab] = useState('details');
   const [action, setAction] = useState<ActionDef | null>(null);
   const [editAnyway, setEditAnyway] = useState(false);
+  const [editJob, setEditJob] = useState(false);
   const [pairing, setPairing] = useState<{ code: string; link: string; qrSvg: string; station: string; expiresInMin: number } | null>(null);
 
   // Pickers for this record: references via RefPicker, attachment-id fields via FileField (needs the record id).
@@ -109,7 +111,9 @@ export default function RecordPage() {
     && Object.values(rec[f.name] as object).every((v) => v === null || ['string', 'number', 'boolean'].includes(typeof v)));
   const dirty = !isNew && JSON.stringify(values) !== JSON.stringify(rec);
   // Posted/locked (or view-only) records read as a document, not a greyed-out form. Super admin can switch to the form.
-  const readMode = !isNew && (!editable || (force && locked && !editAnyway));
+  const isJob = key === 'repair.job' && !isNew;
+  // A repair job reads as its workflow; the form is one click away.
+  const readMode = !isNew && (!editable || (force && locked && !editAnyway) || (isJob && !editJob));
   const partyKey = ['customerId', 'vendorId', 'employeeId'].find((k) => rec[k]);
   const partyRef = partyKey ? r.fields.find((f) => f.name === partyKey)?.ref : undefined;
   // A partly approved claim is worth what was approved, not what was claimed.
@@ -148,7 +152,7 @@ export default function RecordPage() {
   const actions = (r.actions ?? []).filter((a) => !isNew && can(meta, a.permission ?? `${key}.update`) && (!a.when || a.when.includes(String(rec.status))));
   const canSubmit = !isNew && r.workflow && (r.editableWhen ?? ['draft']).includes(String(rec.status)) && r.can.update;
   // Workflow actions stay visible; the rest (prints, ledgers…) collapse into "More".
-  const primary = actions.filter((a) => !a.opens).slice(0, 3);
+  const primary = isJob ? [] : actions.filter((a) => !a.opens).slice(0, 3); // a job's next step lives in its flow panel
   const more = [
     ...actions.filter((a) => !primary.includes(a)).map((a) => ({ label: a.label, onClick: () => doAction(a) })),
     ...(!isNew && r.printable && r.can.print ? [
@@ -175,6 +179,7 @@ export default function RecordPage() {
             {isNew && editable && <Button disabled={busy} onClick={save}>{t('Create')}</Button>}
             {force && locked && <Button variant="ghost" onClick={() => { setEditAnyway((x) => !x); setValues(rec); }}>{editAnyway ? 'Done editing' : 'Edit anyway'}</Button>}
             {canSubmit && <Button disabled={busy} onClick={() => run(async () => { if (dirty) await save(); await api(`r/${key}/${id}/submit`, 'POST'); })}>{t('Submit for approval')}</Button>}
+            {isJob && editable && !(force && locked) && <Button variant="ghost" onClick={() => { setEditJob((x) => !x); setValues(rec); }}>{editJob ? 'Done editing' : 'Edit details'}</Button>}
             {primary.map((a) => <Button key={a.name} variant="outline" disabled={busy} onClick={() => doAction(a)}>{a.label}</Button>)}
             {more.length > 0 && <Menu label="More" items={more} />}
           </>
@@ -183,6 +188,7 @@ export default function RecordPage() {
       <div className="mb-3"><ErrorBox error={error} /></div>
       {locked && !force && <p className="mb-3 rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">{rec.status ? `Read-only while ${humanize(String(rec.status))}.` : 'Posted records are read-only.'}</p>}
       {force && locked && <p className="mb-3 rounded-lg px-3 py-2 text-xs" style={{ color: 'var(--tone-amber)', background: 'var(--tone-amber-bg)' }}>Super-admin override: this record is {rec.status ? humanize(String(rec.status)) : 'read-only once saved'} — you can still edit or delete it, and every change is logged as an override. Posted amounts are not re-posted to the ledger.</p>}
+      {isJob && <JobFlow rec={rec} jobId={id} actions={actions} onAction={doAction} />}
       {!isNew && <Tabs value={tab} onChange={setTab} tabs={[{ key: 'details', label: t('Details') }, { key: 'files', label: t('Attachments') }, { key: 'activity', label: t('Activity') }, ...(r.timeTracking ? [{ key: 'time', label: t('Time') }] : []), ...(r.workflow ? [{ key: 'approvals', label: t('Approvals') }] : []), ...(key === 'core.user' ? [{ key: 'roles', label: t('Roles') }] : [])]} />}
 
       {(isNew || tab === 'details') && (

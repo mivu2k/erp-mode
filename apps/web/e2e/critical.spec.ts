@@ -525,3 +525,18 @@ test('product: serial units with all their codes; in-stock filter; Track opens t
   await expect(page).toHaveURL(/\/serials\?q=/);
   await expect(page.getByRole('complementary', { name: 'Unit details' }).getByText(`H1-${run}`).first()).toBeVisible();
 });
+
+test('repair job page: workflow stepper and next step', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const cust = await (await request.post('/api/r/sales.customer', { headers: auth, data: { name: `Flow ${run}` } })).json();
+  const intake = await (await request.post('/api/repair/intakes', { headers: auth, data: { customerId: cust.id, items: [{ productType: 'Handheld radio', brand: 'Hytera', model: 'PD785', fault: 'No power' }] } })).json();
+  const job = (await (await request.get(`/api/r/repair.job?pageSize=1&filters=${encodeURIComponent(JSON.stringify({ customerId: cust.id }))}`, { headers: auth })).json()).rows[0];
+  expect(job, JSON.stringify(intake)).toBeTruthy();
+  await page.goto(`/r/repair.job/${job.id}`);
+  await expect(page.getByRole('list', { name: 'Repair progress' })).toBeVisible();
+  await expect(page.locator('[aria-current=step]')).toContainText('Received');
+  await expect(page.getByText('Next step')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit details' })).toBeVisible();
+  await page.screenshot({ path: 'test-results/job-flow.png', fullPage: true });
+});
