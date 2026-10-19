@@ -1,13 +1,15 @@
 'use client';
 import { RichText } from './RichText';
 import { ReactNode, useState } from 'react';
-import { Button, Input, Label, Select, Switch, Textarea } from './primitives';
+import { Button, cx, Input, Label, Select, Switch, Textarea } from './primitives';
 
 export interface FieldMeta { name: string; type: string; required?: boolean; options?: string[]; ref?: string; readonly?: boolean; restricted?: boolean; label?: string; filters?: Record<string, unknown> }
 /** `refs` = titles already known for this row's foreign keys (from the API's `_refs`). */
 export type RefRenderer = (f: FieldMeta, value: unknown, onChange: (v: unknown) => void, refs?: Record<string, string | null>) => ReactNode;
 
-export const humanize = (s: string) => s.replace(/Id$/, '').replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
+/** Short codes that read better spelled out (option values, field names). */
+const WORDS: Record<string, string> = { nfc: 'NFC card', qr: 'QR code', rotating_qr: 'Rotating QR (on screen)', ipWhitelist: 'IP whitelist', radiusM: 'Radius (m)', lat: 'Latitude', lng: 'Longitude' };
+export const humanize = (s: string) => WORDS[s] ?? s.replace(/Id$/, '').replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/^./, (c) => c.toUpperCase());
 
 const toInput = (type: string, v: unknown): string => {
   if (v === null || v === undefined) return '';
@@ -45,6 +47,20 @@ export function FieldInput({ f, value, onChange, renderRef, disabled, refs }: { 
     case 'text':
       return <Textarea id={f.name} aria-label={aria} value={String(value ?? '')} disabled={ro} onChange={(e) => onChange(e.target.value)} />;
     case 'json':
+      // A list with fixed options (e.g. a kiosk station's punch methods) picks them as toggle chips.
+      if (f.options?.length) {
+        const on = Array.isArray(value) ? (value as string[]) : [];
+        return (
+          <div role="group" aria-label={aria} className="flex flex-wrap gap-1.5">
+            {f.options.map((o) => (
+              <button key={o} type="button" aria-pressed={on.includes(o)} disabled={ro} onClick={() => onChange(on.includes(o) ? on.filter((x) => x !== o) : [...on, o])}
+                className={cx('rounded-full border px-3 py-1 text-sm transition disabled:opacity-60', on.includes(o) ? 'border-primary bg-primary/15 text-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>
+                {on.includes(o) ? '✓ ' : ''}{humanize(o)}
+              </button>
+            ))}
+          </div>
+        );
+      }
       // A plain list of strings (accessories, tags) edits as comma-separated text.
       if (Array.isArray(value) && value.every((x) => typeof x === 'string')) {
         return <Input id={f.name} aria-label={aria} value={(value as string[]).join(', ')} disabled={ro} onChange={(e) => onChange(e.target.value.split(',').map((x) => x.trimStart()).filter((x, i, a) => x || i === a.length - 1))} />;

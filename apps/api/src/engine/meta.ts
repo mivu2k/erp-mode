@@ -110,7 +110,8 @@ function zodFor(f: FieldMeta): ZodTypeAny {
     case 'date':
     case 'datetime': return z.coerce.date();
     case 'bool': return z.boolean();
-    case 'json': return z.unknown();
+    // A list field with options (multi-choice) only takes those options.
+    case 'json': return f.options?.length ? z.array(z.enum(f.options as [string, ...string[]])) : z.unknown();
     case 'files': return z.array(z.string().max(191)).max(20);
     case 'enum': return z.enum(f.options as [string, ...string[]]);
   }

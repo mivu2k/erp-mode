@@ -645,6 +645,8 @@ const ENUMS: Record<string, Record<string, string[]>> = {
   'core.template': { kind: ['print', 'notification'] },
   'core.sequence': { reset: ['never', 'yearly', 'monthly'] },
   'reports.report': { schedule: ['daily', 'weekly', 'monthly'] },
+  // A list field with options is a multi-choice (chips): which ways employees can punch at this station.
+  'hrm.station': { methods: ['nfc', 'qr', 'rotating_qr'] },
 };
 for (const r of RESOURCES) r.enums = { ...ENUMS[r.key], ...r.enums };
 

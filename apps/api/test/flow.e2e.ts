@@ -364,6 +364,8 @@ test('Gatepass: demo out → partial return → convert rest to sale', async () 
 });
 
 test('Attendance: pair kiosk → NFC punch (idempotent) → process day', async () => {
+  await assert.rejects(call('POST', 'r/hrm.station', { name: `Bad ${run}`, methods: ['nfc', 'face'] }), /methods/, 'only the offered punch methods');
+  assert.deepEqual((await call('POST', 'r/hrm.station', { name: `QR only ${run}`, methods: ['rotating_qr'] })).methods, ['rotating_qr']);
   const st = await call('POST', 'r/hrm.station', { name: `Gate ${run}`, lat: 33.7, lng: 73.0 });
   const { code } = await call('POST', `hrm/kiosk/stations/${st.id}/pairing-code`);
   const saved = token;
