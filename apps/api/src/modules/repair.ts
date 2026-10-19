@@ -338,10 +338,12 @@ export class RepairController {
   @Get('repair/parts-desk')
   @Permissions('inventory.movement.create')
   async partsDesk(@CurrentUser() user: AuthUser) {
-    const rows = await this.prisma.jobPart.findMany({
-      where: { job: { companyId: user.companyId, deletedAt: null }, OR: [{ requestedQty: { gt: 0 } }, { handbackQty: { gt: 0 } }] },
+    // Requested parts, hand-backs, and anything still to issue on a job that's approved or under repair (not everyone requests first).
+    const rows = (await this.prisma.jobPart.findMany({
+      where: { job: { companyId: user.companyId, deletedAt: null }, OR: [{ requestedQty: { gt: 0 } }, { handbackQty: { gt: 0 } }, { job: { status: { in: ['approved', 'parts_pending', 'in_repair'] } } }] },
       include: { job: { select: { id: true, number: true, brand: true, model: true, productType: true, technicianId: true, status: true } } }, orderBy: { requestedAt: 'asc' },
-    });
+    })).filter((r) => Number(r.requestedQty) > 0 || Number(r.handbackQty) > 0 || Number(r.qty) > Number(r.issuedQty))
+      .sort((a, b) => Number(b.requestedQty > a.requestedQty) - Number(a.requestedQty > b.requestedQty));
     const stores = await this.prisma.warehouse.findMany({ where: { companyId: user.companyId, kind: { in: ['repair', 'normal'] }, deletedAt: null }, select: { id: true, name: true } });
     const ids = [...new Set(rows.map((r) => r.productId))];
     const userIds = [...new Set(rows.flatMap((r) => [r.requestedById, r.job.technicianId]).filter((x): x is string => !!x))];
@@ -357,7 +359,7 @@ export class RepairController {
     return rows.map((r) => ({
       id: r.id, jobId: r.job.id, job: r.job.number, device: [r.job.brand, r.job.model, r.job.productType].filter(Boolean).join(' '), jobStatus: r.job.status,
       technician: uName.get(r.requestedById ?? r.job.technicianId ?? '') ?? '', part: prod.get(r.productId)?.name ?? '?', sku: prod.get(r.productId)?.sku, serialized: !!prod.get(r.productId)?.serialized,
-      requested: Number(r.requestedQty), requestedAt: r.requestedAt, handback: Number(r.handbackQty),
+      requested: Number(r.requestedQty), toIssue: Math.max(Number(r.qty) - Number(r.issuedQty), 0), requestedAt: r.requestedAt, handback: Number(r.handbackQty),
       inStore: onHand(r.productId).reduce((t, x) => t + Number(x.qty), 0), where: onHand(r.productId).map((x) => `${storeName.get(x.warehouseId)} ${Number(x.qty)}`).join(', '),
     }));
   }

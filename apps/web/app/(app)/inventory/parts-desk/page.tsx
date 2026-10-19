@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { api, openDoc } from '@/lib/api';
 
-interface Row { id: string; jobId: string; job: string; device: string; technician: string; part: string; sku?: string; serialized: boolean; requested: number; requestedAt: string | null; handback: number; inStore: number; where: string }
+interface Row { id: string; jobId: string; job: string; device: string; technician: string; part: string; sku?: string; serialized: boolean; requested: number; toIssue: number; requestedAt: string | null; handback: number; inStore: number; where: string }
 const n = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 /** The store's side of repair parts: issue what technicians asked for, receive what they handed back. */
@@ -20,7 +20,7 @@ export default function PartsDesk() {
     try { await api(path, 'POST', body); await load(); } catch (e) { setError(e); } finally { setBusy(''); }
   };
   const jobs = [...new Set((rows ?? []).map((r) => r.jobId))].map((id) => (rows ?? []).filter((r) => r.jobId === id));
-  const asked = jobs.filter((j) => j.some((r) => r.requested > 0));
+  const asked = jobs.filter((j) => j.some((r) => r.toIssue > 0));
   const back = jobs.filter((j) => j.some((r) => r.handback > 0));
 
   return (
@@ -31,9 +31,10 @@ export default function PartsDesk() {
       {asked.length > 0 && <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">To issue ({asked.length})</h2>}
       <div className="space-y-3">
         {asked.map((j) => {
-          const rs = j.filter((r) => r.requested > 0);
+          const rs = j.filter((r) => r.toIssue > 0);
+          const req = rs.some((r) => r.requested > 0);
           return (
-            <Card key={`i${j[0].jobId}`} title={<span><Link className="text-primary hover:underline" href={`/r/repair.job/${j[0].jobId}`}>{j[0].job}</Link> <span className="text-sm font-normal text-muted-foreground">{j[0].device} · asked by {j[0].technician || '—'}{rs[0].requestedAt ? ` · ${new Date(rs[0].requestedAt).toLocaleString()}` : ''}</span></span>}
+            <Card key={`i${j[0].jobId}`} title={<span><Link className="text-primary hover:underline" href={`/r/repair.job/${j[0].jobId}`}>{j[0].job}</Link> <span className="text-sm font-normal text-muted-foreground">{j[0].device} · {req ? `asked by ${j[0].technician || '—'}` : `reserved on the quotation · ${j[0].technician || 'no technician yet'}`}{req && rs[0].requestedAt ? ` · ${new Date(rs[0].requestedAt).toLocaleString()}` : ''}</span></span>}
               actions={<div className="flex gap-1.5"><Button size="sm" variant="ghost" onClick={() => openDoc(`print/repair.job/${j[0].jobId}?size=80`).catch(setError)}>Slip</Button><Button size="sm" disabled={!!busy} onClick={() => run(`i${j[0].jobId}`, `repair/jobs/${j[0].jobId}/issue-parts`, { serials: Object.fromEntries(rs.filter((r) => serials[r.id]).map((r) => [r.id, serials[r.id].split(/[\s,;]+/).filter(Boolean)])) })}>{busy === `i${j[0].jobId}` ? 'Issuing…' : 'Issue'}</Button></div>}>
               <ul className="divide-y divide-border/60 text-sm">
                 {rs.map((r) => (
@@ -41,7 +42,7 @@ export default function PartsDesk() {
                     <span>{r.part} <span className="text-xs text-muted-foreground">{r.sku}</span></span>
                     <span className="flex items-center gap-3">
                       {r.serialized && <Input className="w-56 font-mono" aria-label={`Serial of ${r.part}`} placeholder="Scan serial(s)" value={serials[r.id] ?? ''} onChange={(e) => setSerials({ ...serials, [r.id]: e.target.value })} />}
-                      <span className="tabular-nums"><b>{n(r.requested)}</b> <span className={r.inStore < r.requested ? 'text-red-600' : 'text-muted-foreground'}>({r.where || 'none in stock'})</span></span>
+                      <span className="tabular-nums"><b>{n(r.requested || r.toIssue)}</b> <span className={r.inStore < (r.requested || r.toIssue) ? 'text-red-600' : 'text-muted-foreground'}>({r.where || 'none in stock'})</span></span>
                     </span>
                   </li>
                 ))}

@@ -169,6 +169,7 @@ test('repair parts: technician requests, store issues from the parts desk, techn
   const jobId = jobs[0].id;
   const d = await call('POST', `repair/jobs/${jobId}/diagnose`, { findings: 'LCD dead', parts: [{ productId: ctx.screen.id, qty: 2 }], labor: [{ serviceId: ctx.labor, qty: 1 }] });
   await call('POST', `repair/quotations/${d.quotation.id}/decision`, { accepted: true, via: 'phone' });
+  assert.equal((await call('GET', 'repair/parts-desk')).find((r: J) => r.jobId === jobId)?.toIssue, 2, 'approved job is on the desk even before anyone requests');
   await call('POST', `repair/jobs/${jobId}/request-parts`, {});
   assert.equal((await call('GET', `r/repair.job/${jobId}`)).status, 'parts_pending', 'waiting for the store');
   const ask = (await call('GET', 'repair/parts-desk')).find((r: J) => r.jobId === jobId);
