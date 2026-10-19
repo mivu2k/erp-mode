@@ -296,7 +296,7 @@ export const RESOURCES: ResourceDef[] = [
   {
     key: 'inventory.product', model: 'Product', label: 'Products', title: 'name', subtitle: 'sku', list: ['sku', 'name', 'kind', 'categoryId', 'brand', 'price', 'reorderLevel', 'isActive'], enums: { kind: ['product', 'part'] },
     search: ['sku', 'barcode', 'barcodes', 'name', 'brand', 'model'], barcode: 'barcode', createPath: '/inventory/products/new', refs: { categoryId: 'core.masterdata', unitId: 'core.masterdata', taxId: 'core.masterdata' },
-    restricted: ['cost'], readonly: ['cost'], printable: true,
+    restricted: ['cost'], readonly: ['cost', 'sku'], printable: true,
     actions: [{ name: 'label', label: 'Print label', path: 'print/inventory.product/:id?template=label', opens: true, permission: 'inventory.product.print' }],
   },
   { key: 'inventory.warehouse', model: 'Warehouse', label: 'Warehouses', title: 'name', subtitle: 'code', list: ['code', 'name', 'kind', 'branchId'], refs: { branchId: 'core.branch' } },

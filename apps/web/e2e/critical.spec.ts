@@ -166,7 +166,6 @@ test('logo upload shows in sidebar; product image gallery', async ({ page, reque
 
   await page.goto('/r/inventory.product/new'); // the generic address hands over to the product screen
   await expect(page).toHaveURL(/\/inventory\/products\/new/);
-  await page.getByRole('textbox', { name: 'SKU / item code', exact: true }).fill(`GAL-${run}`);
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(`Gallery ${run}`);
   await page.getByLabel('Add barcode').fill(`ALT-${run}`);
   await page.getByLabel('Add barcode').press('Enter');
@@ -450,17 +449,17 @@ test('search: an unknown barcode offers to create the product with it', async ({
   await expect(page.getByLabel('Barcode', { exact: true })).toHaveValue(code);
 });
 
-test('new product: typing the name fills make and a SKU', async ({ page, request }) => {
+test('new product: typing the name fills brand and model; the SKU is made on save', async ({ page, request }) => {
   const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
   await request.post('/api/r/inventory.product', { headers: { Authorization: `Bearer ${accessToken}` }, data: { sku: `ZK-${run}`, name: 'seed', brand: `Zeko${run}`, price: '1' } });
   await page.goto('/inventory/products/new');
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(`Zeko${run} handheld radio`);
   await expect(page.getByRole('combobox', { name: 'Brand', exact: true })).toHaveValue(`Zeko${run}`);
-  await expect(page.getByRole('textbox', { name: 'SKU / item code', exact: true })).toHaveValue(/^ZEK-[A-Z0-9]+-[2-9A-HJ-NP-Z]{4}$/);
-  await page.getByRole('textbox', { name: 'SKU / item code', exact: true }).fill(`MY-${run}`);
-  await page.getByRole('combobox', { name: 'Model', exact: true }).fill('X1');
-  await page.waitForTimeout(700);
-  await expect(page.getByRole('textbox', { name: 'SKU / item code', exact: true })).toHaveValue(`MY-${run}`, { timeout: 1 }); // own SKU kept
+  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue('handheld radio');
+  await expect(page.getByRole('textbox', { name: 'SKU (automatic)', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Create product' }).click();
+  await expect(page.getByRole('heading', { name: `Zeko${run} handheld radio` })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'SKU (automatic)', exact: true })).toHaveValue(/^ZEK-HANDHELD-[2-9A-HJ-NP-Z]{4}$/);
 });
 
 test('product: label dialog for all its barcodes; repair history from intake', async ({ page, request }) => {

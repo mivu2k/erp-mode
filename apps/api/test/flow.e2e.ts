@@ -229,8 +229,10 @@ test('new product: SKU from make/model, make detected from the name, SKU unique'
   const s2 = await call('GET', `inventory/products/suggest?${new URLSearchParams({ name: 'Plain cable' })}`);
   assert.equal(s2.make, null);
   assert.match(s2.sku, /^PC-[2-9A-HJ-NP-Z]{4}$/);
-  const p = await call('POST', 'r/inventory.product', { sku: s1.sku, name: 'Motorola APX 6000 battery', brand: s1.make, price: '10' });
-  assert.equal(p.sku, s1.sku);
+  // SKUs are system-made: one sent in is ignored, a missing brand is detected on save too.
+  const p = await call('POST', 'r/inventory.product', { sku: 'MY-OWN', name: 'Motorola APX 6000 battery', model: 'APX 6000', price: '10' });
+  assert.match(p.sku, /^MOT-APX6000-[2-9A-HJ-NP-Z]{4}$/);
+  assert.equal(p.brand, 'Motorola');
 });
 
 test('spare parts: own kind and list; issue parts defaults to the Workshop store', async () => {
@@ -276,11 +278,11 @@ test('sale out: a gatepass sells from the store, invoices the customer and recor
 });
 
 test('products import: preview, generated SKU and brand, update by SKU, row problems', async () => {
-  await call('POST', 'r/inventory.product', { sku: `IMP-OLD-${run}`, name: 'Old name', price: '1' });
+  const old = await call('POST', 'r/inventory.product', { name: 'Old name', price: '1' });
   const csv = [
     'Item Name,Item Code,Type,Make,Model,Sale Price,Track serial,Category',
     `Motorola charger ${run},,Spare part,,CH-1,"1,250",no,`,
-    `Renamed ${run},IMP-OLD-${run},,,,,,`,
+    `Renamed ${run},${old.sku},,,,,,`,
     `,,,,,,,`,
     `Bad price ${run},,,,,abc,,`,
     `Unknown cat ${run},,,,,10,,Nonexistent ${run}`,
@@ -297,12 +299,13 @@ test('products import: preview, generated SKU and brand, update by SKU, row prob
   assert.equal((await list('inventory.product', { name: `Motorola charger ${run}` })).length, 0, 'preview saves nothing');
   const row = pre.rows.find((x: J) => x.name === `Motorola charger ${run}`);
   assert.deepEqual([row.brand, row.kind], ['Motorola', 'part']);
-  assert.match(row.sku, /^MOT-CH1-/);
+  assert.equal(row.sku, 'auto', 'new rows get a system SKU when imported');
   const done = await send(true);
   assert.deepEqual([done.created, done.updated, done.errors], [1, 1, 2]);
   const made = (await list('inventory.product', { name: `Motorola charger ${run}` }))[0];
+  assert.match(made.sku, /^MOT-CH1-/);
   assert.deepEqual([made.kind, made.brand, Number(made.price), made.serialized], ['part', 'Motorola', 1250, false]);
-  assert.equal((await list('inventory.product', { sku: `IMP-OLD-${run}` }))[0].name, `Renamed ${run}`, 'existing SKU updated');
+  assert.equal((await call('GET', `r/inventory.product/${old.id}`)).name, `Renamed ${run}`, 'existing SKU updated');
 });
 
 test('Gatepass: demo out → partial return → convert rest to sale', async () => {

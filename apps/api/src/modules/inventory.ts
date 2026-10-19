@@ -107,7 +107,19 @@ export class InventoryController {
         if (clash) throw new BadRequestException(`Barcode ${clash} is already on ${o.name}`);
       }
     };
-    hooks.on('inventory.product', { beforeCreate: (c, d) => checkBarcodes(c, d), beforeUpdate: (c, d, b) => checkBarcodes(c, d, b) });
+    // SKU is always system-made (read-only everywhere): brand–model–random tail, unique; brand picked up from the name if blank.
+    const newSku = async ({ tx, user }: HookCtx, data: Row) => {
+      if (!data.brand && data.name) {
+        const known = (await tx.product.findMany({ where: { companyId: user.companyId, brand: { not: null } }, select: { brand: true }, distinct: ['brand'] })).map((x) => String(x.brand));
+        data.brand = makeFromName(String(data.name), known) ?? undefined;
+      }
+      for (let i = 0; i < 10; i++) {
+        const sku = skuFor({ make: data.brand as string, model: data.model as string, name: data.name as string });
+        if (!(await tx.product.findFirst({ where: { companyId: user.companyId, sku }, select: { id: true } }))) { data.sku = sku; return; }
+      }
+      throw new BadRequestException('Could not make a unique SKU, try again');
+    };
+    hooks.on('inventory.product', { beforeCreate: async (c, d) => { await newSku(c, d); await checkBarcodes(c, d); }, beforeUpdate: (c, d, b) => checkBarcodes(c, d, b) });
     hooks.on('purchase.requisition', { beforeCreate: (_c, data) => void parse(z.array(z.object({ productId: z.string(), qty: z.coerce.number().positive(), jobId: z.string().nullish() })).min(1), data.lines) });
     const poTotals = (_c: HookCtx, data: Row) => {
       const lines = data.lines as Row[] | undefined;
@@ -226,15 +238,13 @@ export class InventoryController {
           if (v[k] && !Number.isFinite(Number(v[k].replace(/,/g, '')))) throw new BadRequestException(`${label} "${v[k]}" is not a number`);
         }
         const brand = v.brand || makeFromName(v.name, known);
-        let sku = v.sku;
-        const existing = sku ? await this.prisma.product.findFirst({ where: { companyId: c, sku, deletedAt: null }, select: { id: true } }) : null;
-        if (!sku) {
-          for (let i = 0; i < 10 && (!sku || taken.has(sku) || (await this.prisma.product.findFirst({ where: { companyId: c, sku }, select: { id: true } }))); i++) sku = skuFor({ make: brand, model: v.model, name: v.name });
-        }
-        if (taken.has(sku!)) throw new BadRequestException(`SKU ${sku} appears twice in the file`);
-        taken.add(sku!);
+        // The file's SKU only finds an existing item to update; new items always get a system SKU.
+        const existing = v.sku ? await this.prisma.product.findFirst({ where: { companyId: c, sku: v.sku, deletedAt: null }, select: { id: true } }) : null;
+        if (existing && taken.has(v.sku!)) throw new BadRequestException(`SKU ${v.sku} appears twice in the file`);
+        if (existing) taken.add(v.sku!);
+        let sku = existing ? v.sku : undefined;
         const data: Row = {
-          name: v.name, sku, kind: v.kind, brand: brand || undefined, model: v.model, barcode: v.barcode, barcodes: v.barcodes,
+          name: v.name, kind: v.kind, brand: brand || undefined, model: v.model, barcode: v.barcode, barcodes: v.barcodes,
           price: v.price?.replace(/,/g, ''), reorderLevel: v.reorderLevel?.replace(/,/g, ''), compatible: v.compatible,
           serialized: v.serialized !== undefined ? yes(v.serialized) : undefined, warrantyMonths: v.warrantyMonths ? Number(v.warrantyMonths) : undefined,
           categoryId: mdId('product_category', v.category), unitId: mdId('unit', v.unit),
@@ -243,9 +253,9 @@ export class InventoryController {
         if (v.category && !data.categoryId) throw new BadRequestException(`Unknown category "${v.category}" (add it in Master Data first)`);
         if (commit === '1') {
           if (existing) await this.resources.update(user, 'inventory.product', existing.id, data);
-          else await this.resources.create(user, 'inventory.product', data);
+          else sku = String((await this.resources.create(user, 'inventory.product', data)).sku);
         }
-        results.push({ row: r, action: existing ? 'update' : 'create', sku: sku!, name: v.name, brand: brand ?? null, kind: v.kind });
+        results.push({ row: r, action: existing ? 'update' : 'create', sku: sku ?? (commit === '1' ? undefined : 'auto'), name: v.name, brand: brand ?? null, kind: v.kind });
       } catch (e) {
         results.push({ row: r, action: 'error', sku: v.sku, name: v.name, error: rowError(e) });
       }

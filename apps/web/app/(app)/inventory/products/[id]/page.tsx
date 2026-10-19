@@ -18,7 +18,7 @@ const SECTIONS: [string, string, string[]][] = [
   ['Compatibility', 'Models or equipment this part fits', ['compatible']],
   ['Images', '', ['images']],
 ];
-const LABELS: Record<string, string> = { kind: 'Kind (product to sell, or repair spare part)', sku: 'SKU / item code', categoryId: 'Category', brand: 'Brand', unitId: 'Unit', taxId: 'Tax', cost: 'Average cost', reorderLevel: 'Reorder when stock falls to', serialized: 'Track serial numbers', warrantyMonths: 'Warranty (months, 0 = company default)', isService: 'Service (no stock)', isActive: 'Active', compatible: 'Compatible with' };
+const LABELS: Record<string, string> = { kind: 'Kind (product to sell, or repair spare part)', sku: 'SKU (automatic)', categoryId: 'Category', brand: 'Brand', unitId: 'Unit', taxId: 'Tax', cost: 'Average cost', reorderLevel: 'Reorder when stock falls to', serialized: 'Track serial numbers', warrantyMonths: 'Warranty (months, 0 = company default)', isService: 'Service (no stock)', isActive: 'Active', compatible: 'Compatible with' };
 const SKIP = new Set(['barcode', 'barcodes', 'custom']);
 const n = (v: unknown) => Number(v ?? 0) || 0;
 const fmt = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -70,31 +70,28 @@ export default function ProductPage() {
     : refPicker(f, v, onChange, refs ?? rec._refs);
   const change = (k: string, v: unknown) => {
     setSaved(false);
-    if (k === 'sku') setAuto((a) => ({ ...a, sku: false }));
     if (k === 'brand') setAuto((a) => ({ ...a, make: false }));
     if (k === 'model') setAuto((a) => ({ ...a, model: false }));
     setValues((s) => ({ ...s, [k]: v }));
   };
 
   // New product: SKU and make follow the name/make/model until the user types their own (server keeps the SKU unique).
-  const [auto, setAuto] = useState(() => ({ sku: isNew && !search.get('sku'), make: isNew && !search.get('brand'), model: isNew && !search.get('model') }));
-  const [roll, setRoll] = useState(0);
-  const suggested = useRef({ sku: '', make: '' });
+  const [auto, setAuto] = useState(() => ({ make: isNew && !search.get('brand'), model: isNew && !search.get('model') }));
+  const suggested = useRef({ make: '' });
   const { name, brand, model } = values as { name?: string; brand?: string; model?: string };
   useEffect(() => {
-    if (!isNew || (!auto.sku && !auto.make) || !String(name ?? '').trim()) return;
+    if (!isNew || !auto.make || !String(name ?? '').trim()) return;
     const t = setTimeout(() => {
       // A late answer only replaces a blank field or our own last suggestion, never what was typed meanwhile.
       const mine = (cur: unknown, last: string) => !String(cur ?? '').trim() || cur === last;
-      api<{ sku: string; make: string | null }>(`inventory/products/suggest?${qs({ name, make: auto.make ? undefined : brand, model })}`).then((sg) => setValues((v) => {
+      api<{ sku: string; make: string | null }>(`inventory/products/suggest?${qs({ name, model })}`).then((sg) => setValues((v) => {
         const next = { ...v };
-        if (auto.sku && mine(v.sku, suggested.current.sku)) next.sku = suggested.current.sku = sg.sku;
         if (auto.make && sg.make && mine(v.brand, suggested.current.make)) next.brand = suggested.current.make = sg.make;
         return next;
       })).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
-  }, [isNew, auto, name, brand, model, roll]);
+  }, [isNew, auto, name, model]);
   // Model follows the name (minus the brand) until typed, so "Hytera PD785" needs typing once, not twice.
   useEffect(() => {
     if (!isNew || !auto.model) return;
@@ -118,7 +115,7 @@ export default function ProductPage() {
   if (!r) return <p className="text-sm text-muted-foreground">You don&apos;t have access to products.</p>;
   if (!loaded) return <Skeleton className="h-96" />;
   const title = isNew ? (values.kind === 'part' ? 'New spare part' : 'New product') : String(rec.name ?? 'Product');
-  const missing = !String(values.name ?? '').trim() || !String(values.sku ?? '').trim();
+  const missing = !String(values.name ?? '').trim();
 
   return (
     <>
@@ -127,7 +124,7 @@ export default function ProductPage() {
         : <Link className="hover:underline" href="/r/inventory.product?kind=product">Inventory › Products</Link>}</div>
       <PageHeader
         title={<span className="flex flex-wrap items-center gap-2">{title}{!isNew && <StatusBadge status={rec.isActive === false ? 'inactive' : 'active'} />}</span>}
-        subtitle={isNew ? 'Name and SKU are required; everything else can be added later' : [rec.sku, rec._refs?.categoryId, [rec.brand, rec.model].filter(Boolean).join(' ')].filter((x) => x && x !== '—').join(' · ')}
+        subtitle={isNew ? 'Only the name is required; the SKU is made for you' : [rec.sku, rec._refs?.categoryId, [rec.brand, rec.model].filter(Boolean).join(' ')].filter((x) => x && x !== '—').join(' · ')}
         actions={<div className="flex flex-wrap gap-2">
           {!isNew && can(meta, 'inventory.product.print') && <Button variant="outline" onClick={() => setLabels(true)}>Print labels</Button>}
           {!isNew && r.can.delete && <Button variant="ghost" onClick={async () => {
@@ -150,10 +147,8 @@ export default function ProductPage() {
                 <Card title={<span>{t}{hint && <span className="ms-2 text-xs font-normal text-muted-foreground">{hint}</span>}</span>}>
                   <FormGrid fields={fs} values={values} onChange={change} renderRef={renderRef} disabled={!canEdit} />
                   {i === 0 && isNew && (
-                    <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      {auto.sku ? 'SKU is made from the brand, model or name.' : 'Using your own SKU.'}
-                      {auto.make && ' Brand is picked up from the name, model follows it.'}
-                      <button type="button" className="text-primary hover:underline" onClick={() => { suggested.current.sku = String(values.sku ?? ''); setAuto((a) => ({ ...a, sku: true })); setRoll((x) => x + 1); }}>{auto.sku ? 'New SKU' : 'Generate SKU'}</button>
+                    <p className="mt-3 text-xs text-muted-foreground">
+                      The SKU is created automatically when you save (from the brand, model and name).{auto.make && ' Brand is picked up from the name; model follows it.'}
                     </p>
                   )}
                 </Card>
