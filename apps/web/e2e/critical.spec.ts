@@ -568,3 +568,17 @@ test('parts desk: the store issues what the technician requested', async ({ page
   await expect(card).toContainText(`Knob ${run}`);
   await page.screenshot({ path: 'test-results/parts-desk.png', fullPage: true });
 });
+
+test('pending quotation: approve on the page, then the customer decision is offered', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const cust = await (await request.post('/api/r/sales.customer', { headers: auth, data: { name: `Appr ${run}` } })).json();
+  const { jobs } = await (await request.post('/api/repair/intakes', { headers: auth, data: { customerId: cust.id, items: [{ productType: 'Handheld radio', fault: 'No TX' }] } })).json();
+  const part = await (await request.post('/api/r/inventory.product', { headers: auth, data: { name: `TX board ${run}`, kind: 'part', price: '125' } })).json();
+  const d = await (await request.post(`/api/repair/jobs/${jobs[0].id}/diagnose`, { headers: auth, data: { findings: 'TX board', parts: [{ productId: part.id, qty: 1 }] } })).json();
+  expect((await request.post(`/api/r/repair.quotation/${d.quotation.id}/submit`, { headers: auth })).ok()).toBeTruthy();
+  await page.goto(`/r/repair.quotation/${d.quotation.id}`);
+  await page.getByRole('button', { name: 'Approve', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Customer decision' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Submit for approval' })).toHaveCount(0);
+});

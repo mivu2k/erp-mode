@@ -41,6 +41,7 @@ export default function RecordPage() {
   const [action, setAction] = useState<ActionDef | null>(null);
   const [editAnyway, setEditAnyway] = useState(false);
   const [editJob, setEditJob] = useState(false);
+  const [myApproval, setMyApproval] = useState<string | null>(null); // pending approval request this user can decide
   const [pairing, setPairing] = useState<{ code: string; link: string; qrSvg: string; station: string; expiresInMin: number } | null>(null);
 
   // Pickers for this record: references via RefPicker, attachment-id fields via FileField (needs the record id).
@@ -57,6 +58,12 @@ export default function RecordPage() {
     api<Rec>(`r/${key}/${id}`).then((d) => { setRec(d); setValues(d); }).catch(setError);
   }, [key, id, isNew]);
   useEffect(load, [load]);
+  // Waiting for my approval? Decide right here instead of hunting for it in the inbox.
+  const pendingNow = rec?.status === 'pending';
+  useEffect(() => {
+    setMyApproval(null);
+    if (pendingNow) api<{ id: string; resource: string; recordId: string }[]>('approvals/inbox').then((xs) => setMyApproval(xs.find((x) => x.resource === key && x.recordId === id)?.id ?? null)).catch(() => {});
+  }, [pendingNow, key, id]);
   // Resources with a guided create screen send /new there.
   // A resource with its own create screen; the query (pre-fills like ?barcode=…) goes along.
   useEffect(() => { if (isNew && r?.createPath) router.replace(`${r.createPath}${search.toString() ? `?${search}` : ''}`); }, [isNew, r, router, search]);
@@ -150,7 +157,14 @@ export default function RecordPage() {
     setAction(a);
   };
   const actions = (r.actions ?? []).filter((a) => !isNew && can(meta, a.permission ?? `${key}.update`) && (!a.when || a.when.includes(String(rec.status))));
-  const canSubmit = !isNew && r.workflow && (r.editableWhen ?? ['draft']).includes(String(rec.status)) && r.can.update;
+  // A quotation only goes through internal approval when its discount is over the limit.
+  const canSubmit = !isNew && r.workflow && (r.editableWhen ?? ['draft']).includes(String(rec.status)) && r.can.update
+    && (key !== 'repair.quotation' || !!(rec.custom as { needsApproval?: boolean } | null)?.needsApproval);
+  const decide = (verb: 'approve' | 'reject') => {
+    const comment = verb === 'reject' ? window.prompt('Reason for rejecting') : undefined;
+    if (verb === 'reject' && !comment?.trim()) return;
+    run(() => api(`approvals/${myApproval}/${verb}`, 'POST', { comment }).then(() => setMyApproval(null)));
+  };
   // Workflow actions stay visible; the rest (prints, ledgers…) collapse into "More".
   const primary = isJob ? [] : actions.filter((a) => !a.opens).slice(0, 3); // a job's next step lives in its flow panel
   const more = [
@@ -178,6 +192,7 @@ export default function RecordPage() {
           <>
             {isNew && editable && <Button disabled={busy} onClick={save}>{t('Create')}</Button>}
             {force && locked && <Button variant="ghost" onClick={() => { setEditAnyway((x) => !x); setValues(rec); }}>{editAnyway ? 'Done editing' : 'Edit anyway'}</Button>}
+            {myApproval && <><Button disabled={busy} onClick={() => decide('approve')}>Approve</Button><Button variant="outline" disabled={busy} onClick={() => decide('reject')}>Reject</Button></>}
             {canSubmit && <Button disabled={busy} onClick={() => run(async () => { if (dirty) await save(); await api(`r/${key}/${id}/submit`, 'POST'); })}>{t('Submit for approval')}</Button>}
             {isJob && editable && !(force && locked) && <Button variant="ghost" onClick={() => { setEditJob((x) => !x); setValues(rec); }}>{editJob ? 'Done editing' : 'Edit details'}</Button>}
             {primary.map((a) => <Button key={a.name} variant="outline" disabled={busy} onClick={() => doAction(a)}>{a.label}</Button>)}
