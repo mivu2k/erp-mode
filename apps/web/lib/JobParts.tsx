@@ -48,7 +48,7 @@ export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): vo
     catch (e) { setError(e); } finally { setBusy(false); }
   };
   const storePicker = (
-    <label className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">Store (empty = {d.store?.name ?? 'Workshop store'})</span>
+    <label className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">Store (empty = automatic: {d.store?.name ?? 'Workshop store'} first, else a store that has it)</span>
       <RefPicker f={{ name: 'warehouseId', type: 'string', ref: 'inventory.warehouse', label: 'Store' }} value={store} onChange={setStore} /></label>
   );
 

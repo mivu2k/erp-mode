@@ -173,7 +173,9 @@ test('repair parts: technician requests, store issues from the parts desk, techn
   assert.equal((await call('GET', `r/repair.job/${jobId}`)).status, 'parts_pending', 'waiting for the store');
   const ask = (await call('GET', 'repair/parts-desk')).find((r: J) => r.jobId === jobId);
   assert.equal(ask.requested, 2, 'request shows on the parts desk');
-  await call('POST', `repair/jobs/${jobId}/issue-parts`, { warehouseId: ctx.wh });
+  assert.ok(ask.where, 'desk says which store has it');
+  // No store picked: taken from wherever it is in stock (the screens were received into the main store, not the Workshop store).
+  await call('POST', `repair/jobs/${jobId}/issue-parts`, {});
   assert.equal((await call('GET', `r/repair.job/${jobId}`)).status, 'in_repair');
   assert.ok(!(await call('GET', 'repair/parts-desk')).some((r: J) => r.jobId === jobId), 'issued requests leave the desk');
   const part = (await call('GET', `repair/jobs/${jobId}/parts`)).parts[0];

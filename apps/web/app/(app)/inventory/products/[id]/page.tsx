@@ -114,7 +114,7 @@ export default function ProductPage() {
   return (
     <>
       <div className="mb-1 text-xs text-muted-foreground">{values.kind === 'part'
-        ? <Link className="hover:underline" href="/r/inventory.product?kind=part">Repair › Spare parts</Link>
+        ? <Link className="hover:underline" href="/r/inventory.product?kind=part">Inventory › Spare parts</Link>
         : <Link className="hover:underline" href="/r/inventory.product?kind=product">Inventory › Products</Link>}</div>
       <PageHeader
         title={<span className="flex flex-wrap items-center gap-2">{title}

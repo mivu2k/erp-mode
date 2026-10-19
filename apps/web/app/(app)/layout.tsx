@@ -49,8 +49,9 @@ function menu(meta: Meta) {
   // Products and repair spare parts are one item list, split by kind: each gets its own menu entry.
   const href = (k: string) => (k === 'finance.account' ? '/finance/accounts' : k === 'inventory.product' ? '/r/inventory.product?kind=product' : `/r/${k}`);
   for (const r of meta.resources) add(r.group ?? r.key.split('.')[0], href(r.key), r.label);
-  if (can(meta, 'inventory.product.view')) add('repair', '/r/inventory.product?kind=part', 'Spare parts');
-  if (can(meta, 'inventory.movement.create')) { add('repair', '/repair/parts-desk', 'Parts desk'); add('inventory', '/repair/parts-desk', 'Repair parts desk'); }
+  // Spare parts are inventory: their list and the store's parts desk (issue to / receive from repair jobs) live there.
+  if (can(meta, 'inventory.product.view')) add('inventory', '/r/inventory.product?kind=part', 'Spare parts');
+  if (can(meta, 'inventory.movement.create')) add('inventory', '/inventory/parts-desk', 'Parts desk');
   add('reports', '/reports', 'Reports'); // standard library lists only reports on data the user can see
   if (can(meta, 'reports.dashboard.view')) add('reports', '/dashboards', 'Dashboard builder');
   if (can(meta, 'core.role.manage')) add('core', '/admin/roles', 'Roles & permissions');

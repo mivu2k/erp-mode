@@ -271,7 +271,6 @@ export class RepairController {
   @Permissions('inventory.movement.create')
   async issue(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
     const b = parse(z.object({ warehouseId: z.string().optional(), serials: z.record(z.array(z.string())).optional() }), body);
-    const warehouseId = b.warehouseId || (await this.workshopStore(user));
     return this.prisma.$transaction(async (tx) => {
       const job = await this.job(tx, user, id, true);
       const parts = await tx.jobPart.findMany({ where: { jobId: id } });
@@ -280,6 +279,7 @@ export class RepairController {
         const need = Number(p.qty) - Number(p.issuedQty);
         if (need <= 0) continue;
         const serials = b.serials?.[p.id] ?? [];
+        const warehouseId = b.warehouseId || (await this.storeFor(tx, user, p.productId, need));
         const moves = serials.length ? serials.slice(0, need).map((s) => ({ qty: 1, serial: s })) : [{ qty: need, serial: null }];
         let cost = 0;
         for (const mv of moves) cost = await this.stock.move(tx, { companyId: user.companyId, productId: p.productId, warehouseId, qty: -mv.qty, serial: mv.serial, type: 'job_issue', refType: 'repair.job', refId: id, userId: user.id, serialStatus: 'issued' });
@@ -342,21 +342,23 @@ export class RepairController {
       where: { job: { companyId: user.companyId, deletedAt: null }, OR: [{ requestedQty: { gt: 0 } }, { handbackQty: { gt: 0 } }] },
       include: { job: { select: { id: true, number: true, brand: true, model: true, productType: true, technicianId: true, status: true } } }, orderBy: { requestedAt: 'asc' },
     });
-    const ws = await this.prisma.warehouse.findFirst({ where: { companyId: user.companyId, kind: 'repair', deletedAt: null }, orderBy: { createdAt: 'asc' }, select: { id: true } });
+    const stores = await this.prisma.warehouse.findMany({ where: { companyId: user.companyId, kind: { in: ['repair', 'normal'] }, deletedAt: null }, select: { id: true, name: true } });
     const ids = [...new Set(rows.map((r) => r.productId))];
     const userIds = [...new Set(rows.flatMap((r) => [r.requestedById, r.job.technicianId]).filter((x): x is string => !!x))];
     const [products, users, stock] = await Promise.all([
       this.prisma.product.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, sku: true, serialized: true } }),
       this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }),
-      ws ? this.prisma.stockLevel.findMany({ where: { warehouseId: ws.id, productId: { in: ids } }, select: { productId: true, qty: true } }) : [],
+      this.prisma.stockLevel.findMany({ where: { warehouseId: { in: stores.map((w) => w.id) }, productId: { in: ids }, qty: { gt: 0 } }, select: { productId: true, warehouseId: true, qty: true } }),
     ]);
+    const storeName = new Map(stores.map((w) => [w.id, w.name]));
     const prod = new Map(products.map((p) => [p.id, p]));
     const uName = new Map(users.map((u) => [u.id, u.name]));
-    const onHand = new Map(stock.map((x) => [x.productId, Number(x.qty)]));
+    const onHand = (pid: string) => stock.filter((x) => x.productId === pid);
     return rows.map((r) => ({
       id: r.id, jobId: r.job.id, job: r.job.number, device: [r.job.brand, r.job.model, r.job.productType].filter(Boolean).join(' '), jobStatus: r.job.status,
       technician: uName.get(r.requestedById ?? r.job.technicianId ?? '') ?? '', part: prod.get(r.productId)?.name ?? '?', sku: prod.get(r.productId)?.sku, serialized: !!prod.get(r.productId)?.serialized,
-      requested: Number(r.requestedQty), requestedAt: r.requestedAt, handback: Number(r.handbackQty), inStore: onHand.get(r.productId) ?? 0,
+      requested: Number(r.requestedQty), requestedAt: r.requestedAt, handback: Number(r.handbackQty),
+      inStore: onHand(r.productId).reduce((t, x) => t + Number(x.qty), 0), where: onHand(r.productId).map((x) => `${storeName.get(x.warehouseId)} ${Number(x.qty)}`).join(', '),
     }));
   }
 
@@ -505,6 +507,21 @@ export class RepairController {
   }
 
   /** Where spare parts live: the company's repair store (Workshop store); asked for when there is none. */
+  /**
+   * Where a part is taken from when the store isn't picked: the Workshop store if it has enough, otherwise any working
+   * store that does (parts are usually received into the main store). Not enough anywhere → says where what there is.
+   */
+  private async storeFor(tx: Tx, user: AuthUser, productId: string, need: number) {
+    const stores = await tx.warehouse.findMany({ where: { companyId: user.companyId, deletedAt: null, kind: { in: ['repair', 'normal'] } }, select: { id: true, name: true, kind: true }, orderBy: { createdAt: 'asc' } });
+    const qty = new Map((await tx.stockLevel.findMany({ where: { productId, warehouseId: { in: stores.map((w) => w.id) } } })).map((l) => [l.warehouseId, Number(l.qty)]));
+    const levels = stores.map((w) => ({ warehouseId: w.id, warehouse: w, qty: qty.get(w.id) ?? 0 }));
+    const enough = levels.filter((l) => l.qty >= need).sort((a, b) => (a.warehouse.kind === 'repair' ? 0 : 1) - (b.warehouse.kind === 'repair' ? 0 : 1));
+    if (enough[0]) return enough[0].warehouseId;
+    const p = await tx.product.findUnique({ where: { id: productId }, select: { name: true } });
+    const have = levels.filter((l) => Number(l.qty) > 0).map((l) => `${l.warehouse.name} ${Number(l.qty)}`).join(', ');
+    throw new BadRequestException(`Not enough ${p?.name ?? 'stock'} to issue ${need} — ${have ? `in stock: ${have}` : 'none in any store'}. Receive it (purchase) or transfer it first.`);
+  }
+
   private async workshopStore(user: AuthUser) {
     const w = await this.prisma.warehouse.findFirst({ where: { companyId: user.companyId, kind: 'repair', deletedAt: null }, orderBy: { createdAt: 'asc' }, select: { id: true } });
     if (!w) throw new BadRequestException('Pick the store to take parts from (no Workshop store is set up)');

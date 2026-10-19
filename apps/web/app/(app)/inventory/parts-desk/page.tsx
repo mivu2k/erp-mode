@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 import { api, openDoc } from '@/lib/api';
 
-interface Row { id: string; jobId: string; job: string; device: string; technician: string; part: string; sku?: string; serialized: boolean; requested: number; requestedAt: string | null; handback: number; inStore: number }
+interface Row { id: string; jobId: string; job: string; device: string; technician: string; part: string; sku?: string; serialized: boolean; requested: number; requestedAt: string | null; handback: number; inStore: number; where: string }
 const n = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
 /** The store's side of repair parts: issue what technicians asked for, receive what they handed back. */
@@ -41,7 +41,7 @@ export default function PartsDesk() {
                     <span>{r.part} <span className="text-xs text-muted-foreground">{r.sku}</span></span>
                     <span className="flex items-center gap-3">
                       {r.serialized && <Input className="w-56 font-mono" aria-label={`Serial of ${r.part}`} placeholder="Scan serial(s)" value={serials[r.id] ?? ''} onChange={(e) => setSerials({ ...serials, [r.id]: e.target.value })} />}
-                      <span className="tabular-nums"><b>{n(r.requested)}</b> <span className={r.inStore < r.requested ? 'text-red-600' : 'text-muted-foreground'}>({n(r.inStore)} in store)</span></span>
+                      <span className="tabular-nums"><b>{n(r.requested)}</b> <span className={r.inStore < r.requested ? 'text-red-600' : 'text-muted-foreground'}>({r.where || 'none in stock'})</span></span>
                     </span>
                   </li>
                 ))}

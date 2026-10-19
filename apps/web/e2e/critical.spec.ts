@@ -496,7 +496,7 @@ test('spare parts: own menu and list; New starts a spare part', async ({ page })
   await page.getByRole('link', { name: 'New' }).click();
   await expect(page).toHaveURL(/\/inventory\/products\/new\?kind=part/);
   await expect(page.getByRole('heading', { name: 'New spare part' })).toBeVisible();
-  await expect(page.getByText('Repair › Spare parts')).toBeVisible();
+  await expect(page.getByText('Inventory › Spare parts')).toBeVisible();
 });
 
 test('products: import a CSV — preview, generated SKUs, then import', async ({ page }) => {
@@ -563,7 +563,7 @@ test('parts desk: the store issues what the technician requested', async ({ page
   const d = await (await request.post(`/api/repair/jobs/${jobs[0].id}/diagnose`, { headers: auth, data: { findings: 'Knob broken', parts: [{ productId: part.id, qty: 1 }] } })).json();
   await request.post(`/api/repair/quotations/${d.quotation.id}/decision`, { headers: auth, data: { accepted: true, via: 'phone' } });
   expect((await request.post(`/api/repair/jobs/${jobs[0].id}/request-parts`, { headers: auth, data: {} })).ok()).toBeTruthy();
-  await page.goto('/repair/parts-desk');
+  await page.goto('/inventory/parts-desk');
   const card = page.locator('section', { hasText: jobs[0].number });
   await expect(card).toContainText(`Knob ${run}`);
   await page.screenshot({ path: 'test-results/parts-desk.png', fullPage: true });
