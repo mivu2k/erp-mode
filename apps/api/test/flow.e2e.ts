@@ -233,6 +233,9 @@ test('new product: SKU from make/model, make detected from the name, SKU unique'
   const p = await call('POST', 'r/inventory.product', { sku: 'MY-OWN', name: 'Motorola APX 6000 battery', model: 'APX 6000', price: '10' });
   assert.match(p.sku, /^MOT-APX6000-[2-9A-HJ-NP-Z]{4}$/);
   assert.equal(p.brand, 'Motorola');
+  const q = await call('POST', 'r/inventory.product', { name: `Kenwood NX-${run}`, brand: 'Kenwood', price: '1' });
+  assert.equal(q.model, `NX-${run}`, 'model follows the name');
+  assert.equal((await call('PATCH', `r/inventory.product/${q.id}`, { name: `Kenwood TK-${run}` })).model, `TK-${run}`, 'and follows a rename');
 });
 
 test('spare parts: own kind and list; issue parts defaults to the Workshop store', async () => {

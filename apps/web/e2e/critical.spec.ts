@@ -450,13 +450,12 @@ test('search: an unknown barcode offers to create the product with it', async ({
   await expect(page.getByRole('button', { name: `Remove ${code}` })).toBeVisible(); // the scanned code is on the new item
 });
 
-test('new product: typing the name fills brand and model; the SKU is made on save', async ({ page, request }) => {
+test('new product: typing the name fills the brand; the SKU is made on save', async ({ page, request }) => {
   const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
   await request.post('/api/r/inventory.product', { headers: { Authorization: `Bearer ${accessToken}` }, data: { sku: `ZK-${run}`, name: 'seed', brand: `Zeko${run}`, price: '1' } });
   await page.goto('/inventory/products/new');
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(`Zeko${run} handheld radio`);
   await expect(page.getByRole('combobox', { name: 'Brand', exact: true })).toHaveValue(`Zeko${run}`);
-  await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue('handheld radio');
   await expect(page.getByText('the SKU is made when you save')).toBeVisible();
   await page.getByRole('button', { name: 'Create product' }).click();
   await expect(page.getByRole('heading', { name: `Zeko${run} handheld radio` })).toBeVisible();

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { barcodeList, cellText, importRow, makeFromName, skuFor } from './inventory';
+import { barcodeList, cellText, importRow, makeFromName, modelFromName, skuFor } from './inventory';
 
 test('product barcodes: main + extras, any separator, no blanks or repeats', () => {
   assert.deepEqual(barcodeList('111', '222\n333, 222 ;444'), ['111', '222', '333', '444']);
@@ -36,4 +36,11 @@ test('import: Excel rich text, formulas and links read as their text; part/produ
   assert.equal(cellText({ text: 'Hytera', hyperlink: 'x' }), 'Hytera');
   const kind = (v: unknown) => importRow(['Name', 'Item Type'], ['x', v], 'product').kind;
   assert.deepEqual([kind({ richText: [{ text: 'Spare part' }] }), kind('Parts'), kind('SP'), kind('Component'), kind('Product'), kind('Spare')], ['part', 'part', 'part', 'part', 'product', 'part']);
+});
+
+test('model follows the name, without a leading brand', () => {
+  assert.equal(modelFromName('Kenwood NX-1200', 'Kenwood'), 'NX-1200');
+  assert.equal(modelFromName('NX-1200', 'Kenwood'), 'NX-1200', 'no brand in front: the name itself');
+  assert.equal(modelFromName('kenwood  NX-1200 ', 'Kenwood'), 'NX-1200');
+  assert.equal(modelFromName('Kenwoodish radio', 'Kenwood'), 'Kenwoodish radio', 'whole word only');
 });

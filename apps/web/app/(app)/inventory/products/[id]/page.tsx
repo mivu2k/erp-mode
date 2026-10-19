@@ -12,7 +12,7 @@ type Rec = Record<string, unknown> & { id?: string; _refs?: Record<string, strin
 const KEY = 'inventory.product';
 /** The product form in the order a storekeeper fills it; anything not listed (custom fields) goes under "More". */
 const SECTIONS: [string, string, string[]][] = [
-  ['Item', 'What it is and how it is grouped', ['name', 'brand', 'model', 'kind', 'categoryId', 'unitId', 'isActive', 'isService']],
+  ['Item', 'What it is and how it is grouped', ['name', 'brand', 'kind', 'categoryId', 'unitId', 'isActive', 'isService']],
   ['Pricing', 'Selling price and tax; cost is the running average from receipts', ['price', 'taxId', 'cost']],
   ['Stock control', 'When to reorder, and how units are tracked', ['reorderLevel', 'serialized', 'warrantyMonths']],
   ['Compatibility', 'Models or equipment this part fits', ['compatible']],
@@ -20,7 +20,8 @@ const SECTIONS: [string, string, string[]][] = [
 ];
 const LABELS: Record<string, string> = { kind: 'Kind', sku: 'SKU (automatic)', categoryId: 'Category', brand: 'Brand', unitId: 'Unit', taxId: 'Tax', cost: 'Average cost', reorderLevel: 'Reorder when stock falls to', serialized: 'Track serial numbers', warrantyMonths: 'Warranty (months, 0 = company default)', isService: 'Service (no stock)', isActive: 'Active', compatible: 'Compatible with' };
 // SKU is system-made and shown in the header; barcodes have their own card.
-const SKIP = new Set(['sku', 'barcode', 'barcodes', 'custom']);
+// Model is not asked for: the server keeps it in step with the name (name minus brand).
+const SKIP = new Set(['sku', 'model', 'barcode', 'barcodes', 'custom']);
 const n = (v: unknown) => Number(v ?? 0) || 0;
 const fmt = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const splitCodes = (s: unknown) => String(s ?? '').split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
@@ -48,8 +49,8 @@ export default function ProductPage() {
   useEffect(load, [load]);
 
   const canEdit = !!r && (isNew ? r.can.create : r.can.update);
-  // Brand and model render as typeable dropdowns (pseudo-refs handled in renderRef below).
-  const fields = useMemo(() => (r?.fields ?? []).map((f) => ({ ...f, label: LABELS[f.name] ?? f.label, ...(f.name === 'brand' || f.name === 'model' ? { ref: `@${f.name}` } : {}) })) as FieldMeta[], [r]);
+  // Brand renders as a typeable dropdown of brands in use (pseudo-ref handled in renderRef below).
+  const fields = useMemo(() => (r?.fields ?? []).map((f) => ({ ...f, label: LABELS[f.name] ?? f.label, ...(f.name === 'brand' ? { ref: '@brand' } : {}) })) as FieldMeta[], [r]);
   const [opts, setOpts] = useState<{ brands: string[]; models: { brand: string; model: string }[] }>({ brands: [], models: [] });
   useEffect(() => { api<typeof opts>('inventory/products/options').then(setOpts).catch(() => {}); }, []);
   const byName = new Map(fields.map((f) => [f.name, f]));
@@ -57,12 +58,12 @@ export default function ProductPage() {
   const extra = fields.filter((f) => !listed.has(f.name) && !SKIP.has(f.name) && !f.restricted);
   const pick = (names: string[]) => names.map((x) => byName.get(x)).filter((f): f is FieldMeta => !!f);
   const renderRef: RefRenderer = (f, v, onChange, refs) =>
-    f.ref === '@brand' || f.ref === '@model' ? (
+    f.ref === '@brand' ? (
       <>
         <Input id={f.name} aria-label={f.label} list={`${f.name}-options`} value={String(v ?? '')} disabled={!canEdit} autoComplete="off"
-          placeholder={f.name === 'brand' ? 'Pick or type a new brand' : 'Pick or type'} onChange={(e) => onChange(e.target.value || null)} />
+          placeholder="Pick or type a new brand" onChange={(e) => onChange(e.target.value || null)} />
         <datalist id={`${f.name}-options`}>
-          {(f.name === 'brand' ? opts.brands : [...new Set(opts.models.filter((m) => !values.brand || m.brand.toLowerCase() === String(values.brand).toLowerCase()).map((m) => m.model))]).map((o) => <option key={o} value={o} />)}
+          {opts.brands.map((o) => <option key={o} value={o} />)}
         </datalist>
       </>
     ) :
@@ -72,41 +73,33 @@ export default function ProductPage() {
   const change = (k: string, v: unknown) => {
     setSaved(false);
     if (k === 'brand') setAuto((a) => ({ ...a, make: false }));
-    if (k === 'model') setAuto((a) => ({ ...a, model: false }));
     setValues((s) => ({ ...s, [k]: v }));
   };
 
-  // New product: SKU and make follow the name/make/model until the user types their own (server keeps the SKU unique).
-  const [auto, setAuto] = useState(() => ({ make: isNew && !search.get('brand'), model: isNew && !search.get('model') }));
+  // New product: brand is picked up from the name until the user types one.
+  const [auto, setAuto] = useState(() => ({ make: isNew && !search.get('brand') }));
   const suggested = useRef({ make: '' });
-  const { name, brand, model } = values as { name?: string; brand?: string; model?: string };
+  const { name } = values as { name?: string };
   useEffect(() => {
     if (!isNew || !auto.make || !String(name ?? '').trim()) return;
     const t = setTimeout(() => {
       // A late answer only replaces a blank field or our own last suggestion, never what was typed meanwhile.
       const mine = (cur: unknown, last: string) => !String(cur ?? '').trim() || cur === last;
-      api<{ sku: string; make: string | null }>(`inventory/products/suggest?${qs({ name, model })}`).then((sg) => setValues((v) => {
+      api<{ sku: string; make: string | null }>(`inventory/products/suggest?${qs({ name })}`).then((sg) => setValues((v) => {
         const next = { ...v };
         if (auto.make && sg.make && mine(v.brand, suggested.current.make)) next.brand = suggested.current.make = sg.make;
         return next;
       })).catch(() => {});
     }, 400);
     return () => clearTimeout(t);
-  }, [isNew, auto, name, model]);
-  // Model follows the name (minus the brand) until typed, so "Hytera PD785" needs typing once, not twice.
-  useEffect(() => {
-    if (!isNew || !auto.model) return;
-    const words = String(name ?? '').trim().split(/\s+/).filter(Boolean);
-    const rest = brand && words[0]?.toLowerCase() === String(brand).toLowerCase() ? words.slice(1) : words;
-    setValues((v) => (v.model === (rest.join(' ') || null) ? v : { ...v, model: rest.join(' ') || null }));
-  }, [isNew, auto.model, name, brand]);
+  }, [isNew, auto, name]);
 
   const save = async () => {
     if (!r) return;
     setBusy(true); setError(null);
     try {
       const body: Rec = {};
-      for (const f of fields) if (!f.readonly && values[f.name] !== undefined) body[f.name] = values[f.name];
+      for (const f of fields) if (!f.readonly && f.name !== 'model' && values[f.name] !== undefined) body[f.name] = values[f.name];
       const out = await api<Rec>(isNew ? `r/${KEY}` : `r/${KEY}/${id}`, isNew ? 'POST' : 'PATCH', body);
       if (isNew) router.replace(`/inventory/products/${out.id}`);
       else { setRec(out); setValues(out); setSaved(true); }
@@ -128,7 +121,7 @@ export default function ProductPage() {
           {!isNew && <span className="rounded-full border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">{rec.kind === 'part' ? 'Spare part' : 'Product'}</span>}
           {!isNew && <StatusBadge status={rec.isActive === false ? 'inactive' : 'active'} />}</span>}
         subtitle={isNew ? 'Only the name is required — the SKU is made when you save'
-          : <span>SKU <span className="font-mono text-foreground">{String(rec.sku)}</span>{[rec._refs?.categoryId, [rec.brand, rec.model].filter(Boolean).join(' ')].filter((x) => x && x !== '—').map((x) => ` · ${x}`).join('')}</span>}
+          : <span>SKU <span className="font-mono text-foreground">{String(rec.sku)}</span>{[rec._refs?.categoryId, rec.brand].filter((x) => x && x !== '—').map((x) => ` · ${x}`).join('')}</span>}
         actions={<div className="flex flex-wrap gap-2">
           {!isNew && can(meta, 'inventory.product.print') && <Button variant="outline" onClick={() => setLabels(true)}>Print labels</Button>}
           {!isNew && r.can.delete && <Button variant="ghost" onClick={async () => {
@@ -153,7 +146,7 @@ export default function ProductPage() {
                   <FormGrid fields={fs} values={values} onChange={change} renderRef={renderRef} disabled={!canEdit} />
                   {i === 0 && isNew && (
                     <p className="mt-3 text-xs text-muted-foreground">
-                      The SKU is created automatically when you save (from the brand, model and name).{auto.make && ' Brand is picked up from the name; model follows it.'}
+                      The SKU is created automatically when you save (from the brand and name).{auto.make && ' Brand is picked up from the name.'}
                     </p>
                   )}
                 </Card>

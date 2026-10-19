@@ -23,6 +23,14 @@ export function barcodeList(primary: unknown, extra: unknown): string[] {
   return [...new Set([String(primary ?? ''), ...String(extra ?? '').split(/[\s,;]+/)].map((x) => x.trim()).filter(Boolean))];
 }
 
+/** Model = the name without a leading brand: "Kenwood NX-1200" → "NX-1200"; the name itself when it has no brand in front. */
+export function modelFromName(name: string, brand?: string | null): string | null {
+  const n = name.trim();
+  const b = (brand ?? '').trim();
+  const rest = b && n.toLowerCase().startsWith(`${b.toLowerCase()} `) ? n.slice(b.length).trim() : n;
+  return rest || null;
+}
+
 /** The known make a product name mentions (whole word, longest wins): "Motorola APX 6000 battery" → Motorola. */
 export function makeFromName(name: string, makes: string[]): string | null {
   const words = ` ${name.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `;
@@ -120,12 +128,18 @@ export class InventoryController {
         if (clash) throw new BadRequestException(`Barcode ${clash} is already on ${o.name}`);
       }
     };
+    // Name and model are one thing to the user: model follows the name (minus the brand) unless a model is given explicitly (e.g. an import column).
+    const syncModel = (data: Row, before?: Row) => {
+      if (data.model !== undefined || (data.name === undefined && data.brand === undefined)) return;
+      data.model = modelFromName(String(data.name ?? before?.name ?? ''), (data.brand ?? before?.brand) as string | null);
+    };
     // SKU is always system-made (read-only everywhere): brand–model–random tail, unique; brand picked up from the name if blank.
     const newSku = async ({ tx, user }: HookCtx, data: Row) => {
       if (!data.brand && data.name) {
         const known = (await tx.product.findMany({ where: { companyId: user.companyId, brand: { not: null } }, select: { brand: true }, distinct: ['brand'] })).map((x) => String(x.brand));
         data.brand = makeFromName(String(data.name), known) ?? undefined;
       }
+      syncModel(data); // before the SKU, which is built from it
       for (let i = 0; i < 10; i++) {
         const sku = skuFor({ make: data.brand as string, model: data.model as string, name: data.name as string });
         // No barcode of its own: the SKU becomes its barcode, so the printed label scans straight to it.
@@ -133,7 +147,10 @@ export class InventoryController {
       }
       throw new BadRequestException('Could not make a unique SKU, try again');
     };
-    hooks.on('inventory.product', { beforeCreate: async (c, d) => { await newSku(c, d); await checkBarcodes(c, d); }, beforeUpdate: (c, d, b) => checkBarcodes(c, d, b) });
+    hooks.on('inventory.product', {
+      beforeCreate: async (c, d) => { await newSku(c, d); await checkBarcodes(c, d); },
+      beforeUpdate: async (c, d, b) => { syncModel(d, b); await checkBarcodes(c, d, b); },
+    });
     hooks.on('purchase.requisition', { beforeCreate: (_c, data) => void parse(z.array(z.object({ productId: z.string(), qty: z.coerce.number().positive(), jobId: z.string().nullish() })).min(1), data.lines) });
     const poTotals = (_c: HookCtx, data: Row) => {
       const lines = data.lines as Row[] | undefined;
