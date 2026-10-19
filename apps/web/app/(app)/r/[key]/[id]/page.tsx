@@ -137,6 +137,7 @@ export default function RecordPage() {
 
   const doAction = (a: ActionDef) => {
     if (a.opens) return openDoc(a.path.replace(':id', id) + (a.path.startsWith('print/') || a.path.includes('format=') || a.path.includes('presentation') ? '' : `${a.path.includes('?') ? '&' : '?'}format=html`)).catch(setError);
+    if (a.confirm && !confirm(a.confirm)) return;
     if (!a.fields) return run(() => api(a.path.replace(':id', id), 'POST', {}).then((res) => {
       if (res && typeof res === 'object' && 'password' in res) alert(`Password: ${(res as { password: string | null }).password ?? '(none)'}`);
       if (res && typeof res === 'object' && 'link' in res && 'qrSvg' in res) setPairing(res as NonNullable<typeof pairing>);

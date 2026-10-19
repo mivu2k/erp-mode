@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { barcodeDetector } from '@/lib/scan';
 import { api, getToken, hasToken, qs, refresh, setToken } from '@/lib/api';
 import { can, Meta, MetaProvider, useMeta, useMetaQuery } from '@/lib/meta';
 
@@ -209,19 +210,6 @@ function Shell({ children }: { children: ReactNode }) {
       <SearchDialog open={search} onClose={() => setSearch(false)} />
     </div>
   );
-}
-
-type Detector = { detect(src: ImageBitmapSource): Promise<{ rawValue: string }[]> };
-/**
- * The browser's own barcode reader when it has one (Chrome/Android); otherwise the bundled ZXing decoder
- * (iPhone Safari, Firefox), loaded only when first needed and served from /zxing_reader.wasm so it works offline.
- */
-async function barcodeDetector(): Promise<Detector> {
-  const Native = (window as unknown as { BarcodeDetector?: new () => Detector }).BarcodeDetector;
-  if (Native) return new Native();
-  const { BarcodeDetector, prepareZXingModule } = await import('barcode-detector/ponyfill');
-  prepareZXingModule({ overrides: { locateFile: (path: string, prefix: string) => (path.endsWith('.wasm') ? '/zxing_reader.wasm' : prefix + path) } });
-  return new BarcodeDetector() as unknown as Detector;
 }
 
 /** Ctrl+K global search. USB scanners type + Enter: exact code resolves straight to the record. Phones scan with the live camera (HTTPS) or a photo (works on plain HTTP too). */

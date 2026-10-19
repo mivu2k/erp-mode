@@ -38,6 +38,8 @@ export interface ActionDef {
   permission?: string;
   /** Opens returned `url`/html in a new tab instead of refreshing. */
   opens?: boolean;
+  /** Ask before running (for actions without fields that are hard to undo). */
+  confirm?: string;
 }
 
 export interface ResourceDef {
@@ -169,7 +171,8 @@ export const RESOURCES: ResourceDef[] = [
   {
     key: 'hrm.station', model: 'KioskStation', label: 'Kiosk Stations', title: 'name', list: ['name', 'branchId', 'location', 'lastSeenAt', 'isActive'],
     refs: { branchId: 'core.branch' }, hidden: ['pairingHash', 'deviceTokenHash', 'secret'], readonly: ['lastSeenAt', 'pairingExpires'],
-    actions: [{ name: 'pair', label: 'Pair a device (link / QR)', path: 'hrm/kiosk/stations/:id/pairing-code', permission: 'hrm.station.manage' }],
+    actions: [
+      { name: 'unpair', label: 'Unpair device', path: 'hrm/kiosk/stations/:id/unpair', permission: 'hrm.station.manage', confirm: 'Unpair the device at this station? It stops taking punches until it is paired again.' },{ name: 'pair', label: 'Pair a device (link / QR)', path: 'hrm/kiosk/stations/:id/pairing-code', permission: 'hrm.station.manage' }],
   },
   { key: 'hrm.punch', model: 'AttendancePunch', label: 'Punches', title: 'method', list: ['employeeId', 'at', 'method', 'stationId'], refs: { employeeId: 'hrm.employee', stationId: 'hrm.station' }, ops: [], owner: 'employeeId' },
   {

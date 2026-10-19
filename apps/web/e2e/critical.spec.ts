@@ -295,6 +295,15 @@ test('kiosk pairing by link: admin gets link + QR, opening it pairs the device',
   await kiosk.goto(link.replace(/^https?:\/\/[^/]+/, ''));
   await expect(kiosk.getByText(`Gate ${run}`)).toBeVisible();
   expect(kiosk.url()).not.toContain('code=');
+  await expect(kiosk.getByText('Online')).toBeVisible();
+  await expect(kiosk.getByRole('button', { name: /unpair/i })).toHaveCount(0); // staff can't unpair the kiosk
+  // Only an admin can unpair; the kiosk notices on its next request and goes back to pairing.
+  await page.reload(); // closes the pairing dialog
+  page.once('dialog', (d) => d.accept()); // "Unpair the device at this station?"
+  await Promise.all([page.waitForResponse((r) => r.url().endsWith('/unpair') && r.ok()), page.getByRole('button', { name: 'Unpair device' }).click()]);
+  await kiosk.getByLabel('Card reader input').fill('ANY-CARD');
+  await kiosk.getByLabel('Card reader input').press('Enter');
+  await expect(kiosk.getByText('This kiosk was unpaired by an administrator')).toBeVisible();
   await ctx.close(); // the paired kiosk page must not outlive this test
 });
 

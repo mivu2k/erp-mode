@@ -372,6 +372,8 @@ test('Attendance: pair kiosk → NFC punch (idempotent) → process day', async 
   token = '';
   const { deviceToken } = await call('POST', 'hrm/kiosk/pair', { code });
   const h = { 'x-device-token': deviceToken };
+  const beat = await call('GET', 'hrm/kiosk/health', undefined, h);
+  assert.ok(beat.company && Array.isArray(beat.methods), 'heartbeat brings company and methods');
   // A recent working day: kiosks only trust offline timestamps from the last 7 days; Sunday (default weekend) and the seeded holidays don't count as late.
   const holidays = ['02-05', '03-23', '05-01', '08-14', '12-25'];
   let back = 1;
@@ -382,6 +384,8 @@ test('Attendance: pair kiosk → NFC punch (idempotent) → process day', async 
   await call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}`, at: `${day0}T12:10:00Z`, idempotencyKey: `k2-${run}` }, h); // 17:10 PKT
   token = saved;
   await call('POST', 'hrm/attendance/process', { date: day0 });
+  await call('POST', `hrm/kiosk/stations/${st.id}/unpair`);
+  await assert.rejects(call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}` }, h), /401/, 'an unpaired device is refused');
   // The day processed above, not whichever row is newest (the nightly job also marks today's attendance).
   const day = (await list('hrm.attendance', { employeeId: ctx.emp.id, date: day0 }))[0];
   assert.equal(day.status, 'late');

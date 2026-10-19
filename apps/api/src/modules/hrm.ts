@@ -128,6 +128,15 @@ export class HrmController {
     return { code, link, qrSvg: new PrintService().qrSvg(link), station: st.name, expiresInMin: 10 };
   }
 
+  /** Admin switches a station's device off (lost tablet, replaced device): its token stops working at once. */
+  @Post('kiosk/stations/:id/unpair')
+  @Permissions('hrm.station.manage')
+  async unpair(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    await this.prisma.kioskStation.findFirstOrThrow({ where: { id, companyId: user.companyId } });
+    await this.prisma.kioskStation.update({ where: { id }, data: { deviceTokenHash: null, secret: null, pairingHash: null, pairingExpires: null } });
+    return { ok: true };
+  }
+
   /** Device exchanges a one-time pairing code for a long-lived, station-scoped device token. */
   @Public()
   @Post('kiosk/pair')
@@ -180,8 +189,14 @@ export class HrmController {
   @Get('kiosk/health')
   async kioskHealth(@Headers('x-device-token') token: string, @Ip() ip: string) {
     const st = await this.station(token, ip);
-    const today = new Date(Date.now() - 12 * 3600_000);
-    return { station: st.name, punchesToday: await this.prisma.attendancePunch.count({ where: { stationId: st.id, at: { gt: today } } }) };
+    // The kiosk's heartbeat (every minute): keeps "last seen" fresh and hands it the current methods and branding.
+    const today = new Date(new Date().toISOString().slice(0, 10));
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: st.companyId }, select: { name: true, branding: true } });
+    const logo = (company.branding as { logoDark?: string; logo?: string } | null) ?? {};
+    return {
+      station: st.name, methods: st.methods, company: company.name, logo: logo.logoDark ?? logo.logo ?? null,
+      punchesToday: await this.prisma.attendancePunch.count({ where: { stationId: st.id, at: { gte: today } } }),
+    };
   }
 
   /** Employee scans the kiosk's rotating QR with their phone. */
