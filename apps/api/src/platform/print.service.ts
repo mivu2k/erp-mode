@@ -215,11 +215,15 @@ ${sign}
   labels(title: string, subtitle: string, codes: string[], copies: number, qr = false) {
     // QR labels: code beside its text (scans from any angle, works on curved items); otherwise a Code 128 barcode.
     const one = (code: string) => qr
-      ? `<div class="l q"><div class="qr">${this.qrSvg(code)}</div><div><b>${esc(title)}</b><div class="s">${esc(subtitle)}</div><div class="c">${esc(code)}</div></div></div>`
+      ? `<div class="l q"><div class="qr">${this.qrSvg(code)}</div><div class="t"><b>${esc(title)}</b><div class="s">${esc(subtitle)}</div><div class="c">${esc(code)}</div></div></div>`
       : `<div class="l"><b>${esc(title)}</b><div class="s">${esc(subtitle)}</div>${this.barcodeSvg(code)}</div>`;
     return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} labels</title><style>@page{size:50mm 30mm;margin:1mm}body{font:10px system-ui;margin:0;text-align:center}
 .l{height:27.5mm;overflow:hidden;break-after:page}.l:last-child{break-after:auto}.l b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s{font-size:8px}svg{width:46mm;height:14mm}
-.q{display:flex;gap:1.5mm;align-items:center;text-align:start}.q .qr svg{width:24mm;height:24mm}.q>div:last-child{min-width:0}.c{font:9px ui-monospace,monospace;margin-top:1mm;word-break:break-all}
+*{box-sizing:border-box}.l{padding:.5mm 1mm}
+/* QR: white quiet zone (≥ 4 modules) all round so it scans off paper; text in its own column, never past the edge. */
+.q{display:flex;gap:1.5mm;align-items:center;text-align:start}.q .qr{flex:none;background:#fff;padding:1.2mm}.q .qr svg{display:block;width:20mm;height:20mm}
+.q .t{flex:1;min-width:0;overflow:hidden}.q .t b{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;font-size:9px;line-height:1.15}
+.q .s{font-size:7px;line-height:1.2;margin-top:.5mm;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.c{font:8px/1.15 ui-monospace,monospace;margin-top:.8mm;word-break:break-all}
 @media screen{body{background:#e2e8f0}.l{width:50mm;margin:2mm auto;background:#fff;padding:1mm}}</style></head>
 <body>${codes.flatMap((c) => Array.from({ length: copies }, () => one(c))).join('')}<script>addEventListener('load',()=>print())</script></body></html>`;
   }

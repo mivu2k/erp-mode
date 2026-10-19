@@ -457,10 +457,10 @@ test('new product: typing the name fills brand and model; the SKU is made on sav
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(`Zeko${run} handheld radio`);
   await expect(page.getByRole('combobox', { name: 'Brand', exact: true })).toHaveValue(`Zeko${run}`);
   await expect(page.getByRole('combobox', { name: 'Model', exact: true })).toHaveValue('handheld radio');
-  await expect(page.getByRole('textbox', { name: 'SKU (automatic)', exact: true })).toBeDisabled();
+  await expect(page.getByText('the SKU is made when you save')).toBeVisible();
   await page.getByRole('button', { name: 'Create product' }).click();
   await expect(page.getByRole('heading', { name: `Zeko${run} handheld radio` })).toBeVisible();
-  await expect(page.getByRole('textbox', { name: 'SKU (automatic)', exact: true })).toHaveValue(/^ZEK-HANDHELD-[2-9A-HJ-NP-Z]{4}$/);
+  await expect(page.getByText(/^ZEK-HANDHELD-[2-9A-HJ-NP-Z]{4}$/)).toBeVisible(); // SKU in the header
 });
 
 test('product: label dialog for all its barcodes; repair history from intake', async ({ page, request }) => {

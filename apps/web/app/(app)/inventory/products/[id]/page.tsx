@@ -12,14 +12,15 @@ type Rec = Record<string, unknown> & { id?: string; _refs?: Record<string, strin
 const KEY = 'inventory.product';
 /** The product form in the order a storekeeper fills it; anything not listed (custom fields) goes under "More". */
 const SECTIONS: [string, string, string[]][] = [
-  ['Item', 'What it is and how it is grouped', ['name', 'sku', 'kind', 'categoryId', 'brand', 'model', 'unitId', 'isService', 'isActive']],
+  ['Item', 'What it is and how it is grouped', ['name', 'brand', 'model', 'kind', 'categoryId', 'unitId', 'isActive', 'isService']],
   ['Pricing', 'Selling price and tax; cost is the running average from receipts', ['price', 'taxId', 'cost']],
   ['Stock control', 'When to reorder, and how units are tracked', ['reorderLevel', 'serialized', 'warrantyMonths']],
   ['Compatibility', 'Models or equipment this part fits', ['compatible']],
   ['Images', '', ['images']],
 ];
-const LABELS: Record<string, string> = { kind: 'Kind (product to sell, or repair spare part)', sku: 'SKU (automatic)', categoryId: 'Category', brand: 'Brand', unitId: 'Unit', taxId: 'Tax', cost: 'Average cost', reorderLevel: 'Reorder when stock falls to', serialized: 'Track serial numbers', warrantyMonths: 'Warranty (months, 0 = company default)', isService: 'Service (no stock)', isActive: 'Active', compatible: 'Compatible with' };
-const SKIP = new Set(['barcode', 'barcodes', 'custom']);
+const LABELS: Record<string, string> = { kind: 'Kind', sku: 'SKU (automatic)', categoryId: 'Category', brand: 'Brand', unitId: 'Unit', taxId: 'Tax', cost: 'Average cost', reorderLevel: 'Reorder when stock falls to', serialized: 'Track serial numbers', warrantyMonths: 'Warranty (months, 0 = company default)', isService: 'Service (no stock)', isActive: 'Active', compatible: 'Compatible with' };
+// SKU is system-made and shown in the header; barcodes have their own card.
+const SKIP = new Set(['sku', 'barcode', 'barcodes', 'custom']);
 const n = (v: unknown) => Number(v ?? 0) || 0;
 const fmt = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
 const splitCodes = (s: unknown) => String(s ?? '').split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
@@ -123,8 +124,11 @@ export default function ProductPage() {
         ? <Link className="hover:underline" href="/r/inventory.product?kind=part">Repair › Spare parts</Link>
         : <Link className="hover:underline" href="/r/inventory.product?kind=product">Inventory › Products</Link>}</div>
       <PageHeader
-        title={<span className="flex flex-wrap items-center gap-2">{title}{!isNew && <StatusBadge status={rec.isActive === false ? 'inactive' : 'active'} />}</span>}
-        subtitle={isNew ? 'Only the name is required; the SKU is made for you' : [rec.sku, rec._refs?.categoryId, [rec.brand, rec.model].filter(Boolean).join(' ')].filter((x) => x && x !== '—').join(' · ')}
+        title={<span className="flex flex-wrap items-center gap-2">{title}
+          {!isNew && <span className="rounded-full border border-border px-2 py-0.5 text-xs font-medium text-muted-foreground">{rec.kind === 'part' ? 'Spare part' : 'Product'}</span>}
+          {!isNew && <StatusBadge status={rec.isActive === false ? 'inactive' : 'active'} />}</span>}
+        subtitle={isNew ? 'Only the name is required — the SKU is made when you save'
+          : <span>SKU <span className="font-mono text-foreground">{String(rec.sku)}</span>{[rec._refs?.categoryId, [rec.brand, rec.model].filter(Boolean).join(' ')].filter((x) => x && x !== '—').map((x) => ` · ${x}`).join('')}</span>}
         actions={<div className="flex flex-wrap gap-2">
           {!isNew && can(meta, 'inventory.product.print') && <Button variant="outline" onClick={() => setLabels(true)}>Print labels</Button>}
           {!isNew && r.can.delete && <Button variant="ghost" onClick={async () => {
@@ -141,7 +145,8 @@ export default function ProductPage() {
         <div className="min-w-0 space-y-4">
           {SECTIONS.map(([t, hint, names], i) => {
             const fs = pick(names);
-            if (!fs.length) return null;
+            // Compatibility matters for spare parts only.
+            if (!fs.length || (t === 'Compatibility' && values.kind !== 'part')) return null;
             return (
               <div key={t} className="space-y-4">
                 <Card title={<span>{t}{hint && <span className="ms-2 text-xs font-normal text-muted-foreground">{hint}</span>}</span>}>
@@ -153,7 +158,7 @@ export default function ProductPage() {
                   )}
                 </Card>
                 {/* Barcodes sit right after the item's identity. */}
-                {i === 0 && <Barcodes main={values.barcode} extra={values.barcodes} disabled={!canEdit} onChange={(k, v) => change(k, v)} />}
+                {i === 0 && <Barcodes main={values.barcode} extra={values.barcodes} sku={isNew ? null : String(rec.sku ?? '')} disabled={!canEdit} onChange={(k, v) => change(k, v)} />}
               </div>
             );
           })}
@@ -167,7 +172,7 @@ export default function ProductPage() {
 }
 
 /** Main barcode (printed on the label) plus any number of extra codes, as chips; all optional. Scanners type + Enter. */
-function Barcodes({ main, extra, disabled, onChange }: { main: unknown; extra: unknown; disabled: boolean; onChange(k: 'barcode' | 'barcodes', v: unknown): void }) {
+function Barcodes({ main, extra, sku, disabled, onChange }: { main: unknown; extra: unknown; sku: string | null; disabled: boolean; onChange(k: 'barcode' | 'barcodes', v: unknown): void }) {
   const [draft, setDraft] = useState('');
   const codes = splitCodes(extra);
   const add = () => {
@@ -181,7 +186,7 @@ function Barcodes({ main, extra, disabled, onChange }: { main: unknown; extra: u
       <div className="grid gap-4 md:grid-cols-[18rem_1fr]">
         <label className="block text-sm">
           <span className="mb-1 block text-xs text-muted-foreground">Main barcode (printed on the label)</span>
-          <Input aria-label="Barcode" className="font-mono" value={String(main ?? '')} disabled={disabled} placeholder="Scan or type" onChange={(e) => onChange('barcode', e.target.value || null)} />
+          <Input aria-label="Barcode" className="font-mono" value={String(main ?? '')} disabled={disabled} placeholder={sku ? `Empty: SKU ${sku} is used` : 'Scan or type — empty uses the SKU'} onChange={(e) => onChange('barcode', e.target.value || null)} />
         </label>
         <div className="text-sm">
           <span className="mb-1 block text-xs text-muted-foreground">Other barcodes (other suppliers, packs, old labels)</span>
