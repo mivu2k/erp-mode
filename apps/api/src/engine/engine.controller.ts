@@ -525,6 +525,11 @@ export class PrintController {
         const extra: [string, unknown][] = [['Condition on arrival', cond(rec)], ['Findings', findings(rec)], ['Warranty', rec.warranty ? 'Yes' : '']].filter(([, v]) => v) as [string, unknown][];
         const fw = sections.find(([t]) => t === 'Fault & work');
         if (fw) fw[1].push(...extra); else if (extra.length) sections.push(['Fault & work', extra]);
+        // Parts put into the unit: reserved from the quotation, issued from the store, less any returned.
+        const parts = await this.prisma.jobPart.findMany({ where: { jobId: id } });
+        const names = new Map((await this.prisma.product.findMany({ where: { id: { in: parts.map((x) => x.productId) } }, select: { id: true, name: true, sku: true } })).map((x) => [x.id, x]));
+        for (const x of parts) lineRows.push({ part: names.get(x.productId)?.name ?? '?', sku: names.get(x.productId)?.sku ?? '', serial: x.serial ?? '', reserved: fmt(x.qty), fitted: fmt(Number(x.issuedQty) - Number(x.returnedQty)) });
+        lineCols = ['part', 'sku', 'serial', 'reserved', 'fitted'].filter((c) => lineRows.some((r) => r[c]));
       } else if (jobs.length === 1) {
         const j = jobs[0] as Row;
         sections.unshift(['Equipment', ([['Device', device(j)], ['Serial', j.serial], ['Asset tag', j.assetTag], ['Accessories', list(j.accessories)], ['Reported fault', j.fault], ['Findings', findings(j)], ['Warranty', j.warranty ? 'Yes' : '']] as [string, unknown][]).filter(([, v]) => v)]);

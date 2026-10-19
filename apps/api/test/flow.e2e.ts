@@ -131,6 +131,9 @@ test('Repair: intake → diagnose/quote → accept → issue → invoice → pay
   assert.equal(Number(d.quotation.total), 10500);
   await call('POST', `repair/quotations/${d.quotation.id}/decision`, { accepted: true, via: 'phone' });
   await call('POST', `repair/jobs/${jobId}/issue-parts`, { warehouseId: ctx.wh });
+  const card = await (await fetch(`${API}/print/repair.job/${jobId}`, { headers: { Authorization: `Bearer ${token}` } })).text();
+  assert.match(card, /Fitted/, 'job card lists the parts put into the unit');
+  assert.ok(card.includes(ctx.screen.name), 'by name');
   // Statuses follow the work: no manual moves. Ready still needs a passing test.
   await assert.rejects(call('POST', `repair/jobs/${jobId}/status`, { status: 'ready' }), /Cannot move|passing QC test/);
   await call('POST', `repair/jobs/${jobId}/test`, { rfPowerW: 1.2, freqErrorHz: 900, vswr: 3.1, pass: false, notes: 'High VSWR' });
