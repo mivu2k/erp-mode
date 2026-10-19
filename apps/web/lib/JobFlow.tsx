@@ -4,6 +4,7 @@ import type { ActionDef } from '@erp/shared';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api, qs } from './api';
+import { can, useMeta } from './meta';
 
 type Rec = Record<string, unknown> & { _refs?: Record<string, string | null> };
 interface Doc { id: string; number: string; status: string; total?: string | number; paid?: string | number }
@@ -22,6 +23,7 @@ const OFF_PATH: Record<string, string> = { declined: 'Customer declined the quot
  * (job actions open their usual dialogs; quotation / invoice steps link to that document).
  */
 export function JobFlow({ rec, jobId, actions, onAction }: { rec: Rec; jobId: string; actions: ActionDef[]; onAction(a: ActionDef): void }) {
+  const meta = useMeta();
   const status = String(rec.status ?? 'received');
   const [quote, setQuote] = useState<Doc | null>(null);
   const [invoice, setInvoice] = useState<Doc | null>(null);
@@ -45,8 +47,9 @@ export function JobFlow({ rec, jobId, actions, onAction }: { rec: Rec; jobId: st
       case 'assigned': case 'diagnosing': return { title: 'Diagnose and quote', text: 'Record the findings and the parts and labour needed — a quotation is prepared from them.', buttons: job('diagnose', 'status') };
       case 'diagnosed': return { title: 'Send the quotation to the customer', text: 'Review the quotation, then mark it sent (or record the customer’s answer if you already have it).', buttons: [...q, ...job('diagnose', 'status')] };
       case 'quotation_sent': return { title: 'Waiting for the customer’s decision', text: 'Record whether the customer accepted or declined the quotation.', buttons: q };
-      case 'approved': case 'parts_pending': return { title: 'Issue the parts and start the repair', text: 'Issue the parts from the store — the job moves to “in repair”. No parts (labour only)? Do the work, then record the QC test. The invoice comes once the unit is ready.',
-        buttons: [{ label: 'Issue parts', run: () => window.dispatchEvent(new Event('job:issue-parts')) }, ...job('test')] };
+      case 'approved': return { title: 'Get the parts and start the repair', text: 'The technician requests the parts; the store issues them and the job moves to “in repair”. No parts (labour only)? Do the work, then record the QC test. The invoice comes once the unit is ready.',
+        buttons: [{ label: can(meta, 'inventory.movement.create') ? 'Issue parts' : 'Request parts', run: () => window.dispatchEvent(new Event('job:issue-parts')) }, ...job('test')] };
+      case 'parts_pending': return { title: 'Waiting for the store', text: 'Parts are requested. The store issues them from its Parts desk; the job then moves to “in repair”.', buttons: [{ label: can(meta, 'inventory.movement.create') ? 'Issue parts' : 'View parts', run: () => window.dispatchEvent(new Event('job:issue-parts')) }] };
       case 'in_repair': return { title: 'Repair, then test', text: 'When the work is done, record the bench / QC test. A pass makes the unit ready for pickup.', buttons: job('test', 'status') };
       case 'qc': return { title: 'Record the QC test', text: 'A pass makes the unit ready; a fail sends it back to repair.', buttons: job('test') };
       case 'ready': return invoice

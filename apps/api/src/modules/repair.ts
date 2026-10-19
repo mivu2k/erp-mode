@@ -113,17 +113,19 @@ export class RepairController {
   // ─── Job lifecycle ─────────────────────────────────────────
 
   /** A job from either screen on the shared engine (repair.job = kind repair, fleet.maintenance = kind fleet). */
-  private async job(tx: Tx, user: AuthUser, id: string) {
-    const kind = (await tx.job.findFirst({ where: { id, companyId: user.companyId }, select: { kind: true } }))?.kind;
-    return (await this.resources.load(tx, user, kind === 'fleet' ? 'fleet.maintenance' : 'repair.job', id)) as Row & { status: string; number: string; kind: string };
+  /** `store`: the store keeper issuing / receiving parts works on any job of the company, without rights on the job itself. */
+  private async job(tx: Tx, user: AuthUser, id: string, store = false) {
+    const j = await tx.job.findFirst({ where: { id, companyId: user.companyId, deletedAt: null } });
+    if (store && j) return j as unknown as Row & { status: string; number: string; kind: string };
+    return (await this.resources.load(tx, user, j?.kind === 'fleet' ? 'fleet.maintenance' : 'repair.job', id)) as Row & { status: string; number: string; kind: string };
   }
 
   private jobKey(job: { kind: string }) {
     return job.kind === 'fleet' ? 'fleet.maintenance' : 'repair.job';
   }
 
-  async transition(tx: Tx, user: AuthUser, id: string, to: string, extra: Row = {}, note?: string) {
-    const job = await this.job(tx, user, id);
+  async transition(tx: Tx, user: AuthUser, id: string, to: string, extra: Row = {}, note?: string, store = false) {
+    const job = await this.job(tx, user, id, store);
     const map = await this.settings.get(user.companyId, 'repair.transitions');
     if (job.status !== to && !(map[job.status] ?? []).includes(to) && !(map['*'] ?? []).includes(to)) throw new BadRequestException(`Cannot move ${job.number} from ${job.status} to ${to}`);
     // Equipment only leaves QC with a passing bench test on record.
@@ -271,7 +273,7 @@ export class RepairController {
     const b = parse(z.object({ warehouseId: z.string().optional(), serials: z.record(z.array(z.string())).optional() }), body);
     const warehouseId = b.warehouseId || (await this.workshopStore(user));
     return this.prisma.$transaction(async (tx) => {
-      const job = await this.job(tx, user, id);
+      const job = await this.job(tx, user, id, true);
       const parts = await tx.jobPart.findMany({ where: { jobId: id } });
       let issued = 0;
       for (const p of parts) {
@@ -282,10 +284,10 @@ export class RepairController {
         let cost = 0;
         for (const mv of moves) cost = await this.stock.move(tx, { companyId: user.companyId, productId: p.productId, warehouseId, qty: -mv.qty, serial: mv.serial, type: 'job_issue', refType: 'repair.job', refId: id, userId: user.id, serialStatus: 'issued' });
         const qty = moves.reduce((s, m) => s + m.qty, 0);
-        await tx.jobPart.update({ where: { id: p.id }, data: { issuedQty: { increment: qty }, unitCost: cost, serial: serials[0] ?? p.serial } });
+        await tx.jobPart.update({ where: { id: p.id }, data: { issuedQty: { increment: qty }, requestedQty: Math.max(Number(p.requestedQty) - qty, 0), unitCost: cost, serial: serials[0] ?? p.serial } });
         issued += qty;
       }
-      if (['approved', 'parts_pending'].includes(job.status)) await this.transition(tx, user, id, 'in_repair');
+      if (['approved', 'parts_pending'].includes(job.status)) await this.transition(tx, user, id, 'in_repair', {}, undefined, true);
       return { issued };
     });
   }
@@ -294,6 +296,70 @@ export class RepairController {
    * A job's parts at a glance: each part reserved from the accepted quotation (reserved / issued / returned / in use),
    * what the Workshop store has of it, and every issue/return movement — what the job page's Parts card shows.
    */
+  /** Technician asks the store for the job's parts (all still to issue, or the given quantities); the job waits on parts. */
+  @Post('repair/jobs/:id/request-parts')
+  async requestParts(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
+    const b = parse(z.object({ lines: z.array(z.object({ partId: z.string(), qty: z.coerce.number().positive() })).optional() }), body ?? {});
+    return this.prisma.$transaction(async (tx) => {
+      const job = await this.job(tx, user, id);
+      let requested = 0;
+      for (const p of await tx.jobPart.findMany({ where: { jobId: id } })) {
+        const open = Number(p.qty) - Number(p.issuedQty);
+        const qty = b.lines ? b.lines.find((l) => l.partId === p.id)?.qty ?? 0 : open;
+        if (qty <= 0) continue;
+        if (qty > open) throw new BadRequestException('Requesting more than the quotation reserved');
+        await tx.jobPart.update({ where: { id: p.id }, data: { requestedQty: qty, requestedAt: new Date(), requestedById: user.id } });
+        requested += qty;
+      }
+      if (!requested) throw new BadRequestException('Nothing left to request — every reserved part is issued');
+      if (job.status === 'approved') await this.transition(tx, user, id, 'parts_pending');
+      return { requested };
+    });
+  }
+
+  /** Technician hands unused parts back; they stay on the job until the store receives them. */
+  @Post('repair/jobs/:id/handback-parts')
+  async handback(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
+    const b = parse(z.object({ lines: z.array(z.object({ partId: z.string(), qty: z.coerce.number().positive() })) }), body);
+    return this.prisma.$transaction(async (tx) => {
+      await this.job(tx, user, id);
+      const parts = await tx.jobPart.findMany({ where: { jobId: id } });
+      for (const l of b.lines) {
+        const p = parts.find((x) => x.id === l.partId);
+        if (!p) throw new BadRequestException('Unknown part');
+        if (l.qty > Number(p.issuedQty) - Number(p.returnedQty)) throw new BadRequestException('Handing back more than is on the job');
+        await tx.jobPart.update({ where: { id: p.id }, data: { handbackQty: l.qty } });
+      }
+      return { ok: true };
+    });
+  }
+
+  /** The store's queue: parts technicians asked for, and parts handed back waiting to be received. */
+  @Get('repair/parts-desk')
+  @Permissions('inventory.movement.create')
+  async partsDesk(@CurrentUser() user: AuthUser) {
+    const rows = await this.prisma.jobPart.findMany({
+      where: { job: { companyId: user.companyId, deletedAt: null }, OR: [{ requestedQty: { gt: 0 } }, { handbackQty: { gt: 0 } }] },
+      include: { job: { select: { id: true, number: true, brand: true, model: true, productType: true, technicianId: true, status: true } } }, orderBy: { requestedAt: 'asc' },
+    });
+    const ws = await this.prisma.warehouse.findFirst({ where: { companyId: user.companyId, kind: 'repair', deletedAt: null }, orderBy: { createdAt: 'asc' }, select: { id: true } });
+    const ids = [...new Set(rows.map((r) => r.productId))];
+    const userIds = [...new Set(rows.flatMap((r) => [r.requestedById, r.job.technicianId]).filter((x): x is string => !!x))];
+    const [products, users, stock] = await Promise.all([
+      this.prisma.product.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, sku: true, serialized: true } }),
+      this.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }),
+      ws ? this.prisma.stockLevel.findMany({ where: { warehouseId: ws.id, productId: { in: ids } }, select: { productId: true, qty: true } }) : [],
+    ]);
+    const prod = new Map(products.map((p) => [p.id, p]));
+    const uName = new Map(users.map((u) => [u.id, u.name]));
+    const onHand = new Map(stock.map((x) => [x.productId, Number(x.qty)]));
+    return rows.map((r) => ({
+      id: r.id, jobId: r.job.id, job: r.job.number, device: [r.job.brand, r.job.model, r.job.productType].filter(Boolean).join(' '), jobStatus: r.job.status,
+      technician: uName.get(r.requestedById ?? r.job.technicianId ?? '') ?? '', part: prod.get(r.productId)?.name ?? '?', sku: prod.get(r.productId)?.sku, serialized: !!prod.get(r.productId)?.serialized,
+      requested: Number(r.requestedQty), requestedAt: r.requestedAt, handback: Number(r.handbackQty), inStore: onHand.get(r.productId) ?? 0,
+    }));
+  }
+
   @Get('repair/jobs/:id/parts')
   async jobParts(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     const kind = (await this.prisma.job.findFirst({ where: { id, companyId: user.companyId }, select: { kind: true } }))?.kind;
@@ -319,7 +385,7 @@ export class RepairController {
       store: ws,
       parts: parts.map((p) => ({
         id: p.id, productId: p.productId, name: prod.get(p.productId)?.name ?? '?', sku: prod.get(p.productId)?.sku, serialized: !!prod.get(p.productId)?.serialized,
-        reserved: Number(p.qty), issued: Number(p.issuedQty), returned: Number(p.returnedQty), inUse: Number(p.issuedQty) - Number(p.returnedQty),
+        reserved: Number(p.qty), issued: Number(p.issuedQty), returned: Number(p.returnedQty), inUse: Number(p.issuedQty) - Number(p.returnedQty), requested: Number(p.requestedQty), handback: Number(p.handbackQty),
         toIssue: Math.max(Number(p.qty) - Number(p.issuedQty), 0), unitCost: Number(p.unitCost), serial: p.serial, inStore: onHand.get(p.productId) ?? 0,
       })),
       movements: moves.map((m) => ({ at: m.at, type: m.type, part: prod.get(m.productId)?.name ?? '?', qty: Number(m.qty), serial: m.serial, store: wName.get(m.warehouseId) ?? '', by: m.userId ? uName.get(m.userId) ?? '' : '' })),
@@ -332,16 +398,17 @@ export class RepairController {
     const b = parse(z.object({ warehouseId: z.string().optional(), lines: z.array(z.object({ partId: z.string(), qty: z.coerce.number().positive() })).optional() }), body);
     const warehouseId = b.warehouseId || (await this.workshopStore(user));
     return this.prisma.$transaction(async (tx) => {
-      await this.job(tx, user, id);
+      await this.job(tx, user, id, true);
       const parts = await tx.jobPart.findMany({ where: { jobId: id } });
       let returned = 0;
       for (const p of parts) {
         const out = Number(p.issuedQty) - Number(p.returnedQty);
-        const qty = b.lines ? b.lines.find((l) => l.partId === p.id)?.qty ?? 0 : out;
+        // Without lines the store receives what the technician handed back (or everything still out).
+        const qty = b.lines ? b.lines.find((l) => l.partId === p.id)?.qty ?? 0 : Number(p.handbackQty) || out;
         if (qty <= 0) continue;
         if (qty > out) throw new BadRequestException('Returning more than issued');
         await this.stock.move(tx, { companyId: user.companyId, productId: p.productId, warehouseId, qty, unitCost: Number(p.unitCost), serial: p.serial, type: 'job_return', refType: 'repair.job', refId: id, userId: user.id });
-        await tx.jobPart.update({ where: { id: p.id }, data: { returnedQty: { increment: qty } } });
+        await tx.jobPart.update({ where: { id: p.id }, data: { returnedQty: { increment: qty }, handbackQty: Math.max(Number(p.handbackQty) - qty, 0) } });
         returned += qty;
       }
       return { returned };

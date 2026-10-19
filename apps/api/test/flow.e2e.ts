@@ -161,6 +161,27 @@ test('Repair: intake → diagnose/quote → accept → issue → invoice → pay
   ctx.customer = cust;
 });
 
+test('repair parts: technician requests, store issues from the parts desk, technician hands back, store receives', async () => {
+  const { jobs } = await call('POST', 'repair/intakes', { customerId: ctx.customer.id, items: [{ productType: 'Phone', brand: 'Apple', model: 'iPhone 13', fault: 'Screen dead' }] });
+  const jobId = jobs[0].id;
+  const d = await call('POST', `repair/jobs/${jobId}/diagnose`, { findings: 'LCD dead', parts: [{ productId: ctx.screen.id, qty: 2 }], labor: [{ serviceId: ctx.labor, qty: 1 }] });
+  await call('POST', `repair/quotations/${d.quotation.id}/decision`, { accepted: true, via: 'phone' });
+  await call('POST', `repair/jobs/${jobId}/request-parts`, {});
+  assert.equal((await call('GET', `r/repair.job/${jobId}`)).status, 'parts_pending', 'waiting for the store');
+  const ask = (await call('GET', 'repair/parts-desk')).find((r: J) => r.jobId === jobId);
+  assert.equal(ask.requested, 2, 'request shows on the parts desk');
+  await call('POST', `repair/jobs/${jobId}/issue-parts`, { warehouseId: ctx.wh });
+  assert.equal((await call('GET', `r/repair.job/${jobId}`)).status, 'in_repair');
+  assert.ok(!(await call('GET', 'repair/parts-desk')).some((r: J) => r.jobId === jobId), 'issued requests leave the desk');
+  const part = (await call('GET', `repair/jobs/${jobId}/parts`)).parts[0];
+  await assert.rejects(call('POST', `repair/jobs/${jobId}/handback-parts`, { lines: [{ partId: part.id, qty: 3 }] }), /more than is on the job/);
+  await call('POST', `repair/jobs/${jobId}/handback-parts`, { lines: [{ partId: part.id, qty: 1 }] });
+  assert.equal((await call('GET', 'repair/parts-desk')).find((r: J) => r.jobId === jobId).handback, 1, 'hand-back waits for the store');
+  await call('POST', `repair/jobs/${jobId}/return-parts`, { warehouseId: ctx.wh });
+  const after = (await call('GET', `repair/jobs/${jobId}/parts`)).parts[0];
+  assert.deepEqual([after.returned, after.inUse, after.handback], [1, 1, 0], 'store received exactly what was handed back');
+});
+
 test('repair: re-diagnosis keeps the earlier findings; the accepted quotation is invoiced once the repair is done', async () => {
   const { jobs } = await call('POST', 'repair/intakes', { customerId: ctx.customer.id, items: [{ productType: 'Handheld radio', brand: 'Motorola', model: 'XPR 3300', fault: 'No power' }] });
   const jobId = jobs[0].id;

@@ -80,6 +80,10 @@ model JobPart {
   qty         Decimal @db.Decimal(18, 3)
   issuedQty   Decimal @default(0) @db.Decimal(18, 3)
   returnedQty Decimal @default(0) @db.Decimal(18, 3)
+  requestedQty Decimal @default(0) @db.Decimal(18, 3) // asked of the store, not yet issued
+  requestedAt  DateTime?
+  requestedById String?
+  handbackQty  Decimal @default(0) @db.Decimal(18, 3) // handed back by the technician, not yet received by the store
   unitCost    Decimal @default(0) @db.Decimal(18, 4)
   unitPrice   Decimal @default(0) @db.Decimal(18, 2)
   serial      String?

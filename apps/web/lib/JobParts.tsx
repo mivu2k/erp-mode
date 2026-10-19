@@ -5,7 +5,7 @@ import { api } from './api';
 import { can, useMeta } from './meta';
 import { RefPicker } from './RefPicker';
 
-interface Part { id: string; name: string; sku?: string; serialized: boolean; reserved: number; issued: number; returned: number; inUse: number; toIssue: number; unitCost: number; serial: string | null; inStore: number }
+interface Part { id: string; name: string; sku?: string; serialized: boolean; reserved: number; issued: number; returned: number; inUse: number; requested: number; handback: number; toIssue: number; unitCost: number; serial: string | null; inStore: number }
 interface Move { at: string; type: string; part: string; qty: number; serial: string | null; store: string; by: string }
 interface Data { store: { id: string; name: string } | null; parts: Part[]; movements: Move[] }
 const n = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -16,9 +16,10 @@ const n = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 
  */
 export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): void }) {
   const meta = useMeta();
-  const canMove = can(meta, 'inventory.movement.create');
+  const canMove = can(meta, 'inventory.movement.create'); // the store: issues and receives
+  const canWork = can(meta, 'repair.job.update'); // the technician: asks for parts, hands unused ones back
   const [d, setD] = useState<Data | null>(null);
-  const [mode, setMode] = useState<'issue' | 'return' | null>(null);
+  const [mode, setMode] = useState<'issue' | 'return' | 'request' | 'handback' | null>(null);
   const [store, setStore] = useState<unknown>(null);
   const [serials, setSerials] = useState<Record<string, string>>({});
   const [back, setBack] = useState<Record<string, string>>({});
@@ -28,7 +29,7 @@ export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): vo
   useEffect(() => { load(); }, [load]);
   // "Issue parts" from the job's next-step panel opens the form here.
   useEffect(() => {
-    const open = () => { setMode('issue'); document.getElementById('job-parts')?.scrollIntoView({ behavior: 'smooth' }); };
+    const open = () => { setMode(canMove ? 'issue' : 'request'); document.getElementById('job-parts')?.scrollIntoView({ behavior: 'smooth' }); };
     window.addEventListener('job:issue-parts', open);
     return () => window.removeEventListener('job:issue-parts', open);
   }, []);
@@ -38,6 +39,9 @@ export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): vo
 
   const toIssue = d.parts.filter((p) => p.toIssue > 0);
   const inUse = d.parts.filter((p) => p.inUse > 0);
+  const toAsk = toIssue.filter((p) => p.requested < p.toIssue);
+  const canHandBack = inUse.filter((p) => p.handback < p.inUse);
+  const handedBack = d.parts.filter((p) => p.handback > 0);
   const run = async (path: string, body: object) => {
     setBusy(true); setError(null);
     try { await api(`repair/jobs/${jobId}/${path}`, 'POST', { ...(store ? { warehouseId: store } : {}), ...body }); setMode(null); setSerials({}); setBack({}); await load(); onChanged?.(); }
@@ -50,9 +54,11 @@ export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): vo
 
   return (
     <div id="job-parts"><Card title={<span>Parts<span className="ms-2 text-xs font-normal text-muted-foreground">from the accepted quotation</span></span>}
-      actions={canMove && !mode ? <div className="flex gap-1.5">
-        {toIssue.length > 0 && <Button size="sm" onClick={() => setMode('issue')}>Issue parts</Button>}
-        {inUse.length > 0 && <Button size="sm" variant="outline" onClick={() => { setBack(Object.fromEntries(inUse.map((p) => [p.id, String(p.inUse)]))); setMode('return'); }}>Return unused</Button>}
+      actions={!mode ? <div className="flex flex-wrap gap-1.5">
+        {canWork && toAsk.length > 0 && <Button size="sm" variant={canMove ? 'outline' : undefined} onClick={() => setMode('request')}>Request parts</Button>}
+        {canMove && toIssue.length > 0 && <Button size="sm" onClick={() => setMode('issue')}>Issue parts</Button>}
+        {canWork && canHandBack.length > 0 && <Button size="sm" variant="outline" onClick={() => { setBack(Object.fromEntries(canHandBack.map((p) => [p.id, String(p.inUse)]))); setMode('handback'); }}>Hand back unused</Button>}
+        {canMove && inUse.length > 0 && <Button size="sm" variant="outline" onClick={() => { setBack(Object.fromEntries(inUse.map((p) => [p.id, String(p.handback || p.inUse)]))); setMode('return'); }}>{handedBack.length ? 'Receive handed back' : 'Return to store'}</Button>}
       </div> : undefined}>
       <ErrorBox error={error} />
       <div className="-mx-5 overflow-x-auto">
@@ -71,7 +77,10 @@ export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): vo
                 <td className="px-3 py-2 text-end tabular-nums">{p.unitCost ? n(p.unitCost) : '—'}</td>
                 <td className={cx('px-3 py-2 text-end tabular-nums', p.toIssue > p.inStore && 'text-red-600')}>{n(p.inStore)}</td>
                 <td className="whitespace-nowrap px-3 py-2 pe-5 text-end text-xs">
-                  {p.toIssue > 0 ? <span style={{ color: 'var(--tone-amber)' }}>{n(p.toIssue)} to issue{p.toIssue > p.inStore ? ' — short' : ''}</span> : p.inUse > 0 ? <span style={{ color: 'var(--tone-green)' }}>on the job</span> : <span className="text-muted-foreground">done</span>}
+                  {p.handback > 0 ? <span style={{ color: 'var(--tone-amber)' }}>{n(p.handback)} handed back — store to receive</span>
+                    : p.requested > 0 ? <span style={{ color: 'var(--tone-amber)' }}>{n(p.requested)} requested — waiting for the store</span>
+                    : p.toIssue > 0 ? <span style={{ color: 'var(--tone-amber)' }}>{n(p.toIssue)} to issue{p.toIssue > p.inStore ? ' — short' : ''}</span>
+                    : p.inUse > 0 ? <span style={{ color: 'var(--tone-green)' }}>on the job</span> : <span className="text-muted-foreground">done</span>}
                 </td>
               </tr>
             ))}
@@ -79,6 +88,32 @@ export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): vo
         </table>
       </div>
 
+      {mode === 'request' && (
+        <div className="mt-3 space-y-3 rounded-lg border border-dashed border-border p-3">
+          <div className="text-sm font-semibold">Ask the store for these parts</div>
+          {toAsk.length ? <p className="text-sm">{toAsk.map((p) => `${n(p.toIssue)} × ${p.name}`).join(', ')}</p> : <p className="text-sm text-muted-foreground">Everything is already requested or issued.</p>}
+          <p className="text-xs text-muted-foreground">The store sees this on its Parts desk and issues them to this job.</p>
+          <div className="flex gap-2">
+            <Button size="sm" disabled={busy || !toAsk.length} onClick={() => run('request-parts', {})}>{busy ? 'Sending…' : 'Send request'}</Button>
+            <Button size="sm" variant="ghost" onClick={() => setMode(null)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+      {mode === 'handback' && (
+        <div className="mt-3 space-y-3 rounded-lg border border-dashed border-border p-3">
+          <div className="text-sm font-semibold">Hand unused parts back to the store</div>
+          {canHandBack.map((p) => (
+            <label key={p.id} className="flex items-center justify-between gap-3 text-sm"><span>{p.name} <span className="text-xs text-muted-foreground">({n(p.inUse)} on the job)</span></span>
+              <Input type="number" min={0} max={p.inUse} step="any" aria-label={`Hand back ${p.name}`} className="w-28 text-end" value={back[p.id] ?? ''} onChange={(e) => setBack({ ...back, [p.id]: e.target.value })} /></label>
+          ))}
+          <p className="text-xs text-muted-foreground">They stay on the job until the store receives them.</p>
+          <div className="flex gap-2">
+            <Button size="sm" disabled={busy || !Object.values(back).some((v) => Number(v) > 0)}
+              onClick={() => run('handback-parts', { lines: Object.entries(back).filter(([, v]) => Number(v) > 0).map(([partId, v]) => ({ partId, qty: Number(v) })) })}>{busy ? 'Saving…' : 'Hand back'}</Button>
+            <Button size="sm" variant="ghost" onClick={() => setMode(null)}>Cancel</Button>
+          </div>
+        </div>
+      )}
       {mode === 'issue' && (
         <div className="mt-3 space-y-3 rounded-lg border border-dashed border-border p-3">
           <div className="text-sm font-semibold">Issue parts to this job</div>
@@ -98,7 +133,7 @@ export function JobParts({ jobId, onChanged }: { jobId: string; onChanged?(): vo
       )}
       {mode === 'return' && (
         <div className="mt-3 space-y-3 rounded-lg border border-dashed border-border p-3">
-          <div className="text-sm font-semibold">Return unused parts to the store</div>
+          <div className="text-sm font-semibold">{handedBack.length ? 'Receive the handed-back parts into the store' : 'Return unused parts to the store'}</div>
           {storePicker}
           {inUse.map((p) => (
             <label key={p.id} className="flex items-center justify-between gap-3 text-sm"><span>{p.name} <span className="text-xs text-muted-foreground">({n(p.inUse)} on the job)</span></span>
