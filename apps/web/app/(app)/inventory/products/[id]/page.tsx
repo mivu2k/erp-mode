@@ -18,7 +18,7 @@ const SECTIONS: [string, string, string[]][] = [
   ['Compatibility', 'Models or equipment this part fits', ['compatible']],
   ['Images', '', ['images']],
 ];
-const LABELS: Record<string, string> = { kind: 'Kind (product to sell, or repair spare part)', sku: 'SKU / item code', categoryId: 'Category', brand: 'Make', unitId: 'Unit', taxId: 'Tax', cost: 'Average cost', reorderLevel: 'Reorder when stock falls to', serialized: 'Track serial numbers', warrantyMonths: 'Warranty (months, 0 = company default)', isService: 'Service (no stock)', isActive: 'Active', compatible: 'Compatible with' };
+const LABELS: Record<string, string> = { kind: 'Kind (product to sell, or repair spare part)', sku: 'SKU / item code', categoryId: 'Category', brand: 'Brand', unitId: 'Unit', taxId: 'Tax', cost: 'Average cost', reorderLevel: 'Reorder when stock falls to', serialized: 'Track serial numbers', warrantyMonths: 'Warranty (months, 0 = company default)', isService: 'Service (no stock)', isActive: 'Active', compatible: 'Compatible with' };
 const SKIP = new Set(['barcode', 'barcodes', 'custom']);
 const n = (v: unknown) => Number(v ?? 0) || 0;
 const fmt = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -47,12 +47,24 @@ export default function ProductPage() {
   useEffect(load, [load]);
 
   const canEdit = !!r && (isNew ? r.can.create : r.can.update);
-  const fields = useMemo(() => (r?.fields ?? []).map((f) => ({ ...f, label: LABELS[f.name] ?? f.label })) as FieldMeta[], [r]);
+  // Brand and model render as typeable dropdowns (pseudo-refs handled in renderRef below).
+  const fields = useMemo(() => (r?.fields ?? []).map((f) => ({ ...f, label: LABELS[f.name] ?? f.label, ...(f.name === 'brand' || f.name === 'model' ? { ref: `@${f.name}` } : {}) })) as FieldMeta[], [r]);
+  const [opts, setOpts] = useState<{ brands: string[]; models: { brand: string; model: string }[] }>({ brands: [], models: [] });
+  useEffect(() => { api<typeof opts>('inventory/products/options').then(setOpts).catch(() => {}); }, []);
   const byName = new Map(fields.map((f) => [f.name, f]));
   const listed = new Set(SECTIONS.flatMap(([, , names]) => names));
   const extra = fields.filter((f) => !listed.has(f.name) && !SKIP.has(f.name) && !f.restricted);
   const pick = (names: string[]) => names.map((x) => byName.get(x)).filter((f): f is FieldMeta => !!f);
   const renderRef: RefRenderer = (f, v, onChange, refs) =>
+    f.ref === '@brand' || f.ref === '@model' ? (
+      <>
+        <Input id={f.name} aria-label={f.label} list={`${f.name}-options`} value={String(v ?? '')} disabled={!canEdit} autoComplete="off"
+          placeholder={f.name === 'brand' ? 'Pick or type a new brand' : 'Pick or type'} onChange={(e) => onChange(e.target.value || null)} />
+        <datalist id={`${f.name}-options`}>
+          {(f.name === 'brand' ? opts.brands : [...new Set(opts.models.filter((m) => !values.brand || m.brand.toLowerCase() === String(values.brand).toLowerCase()).map((m) => m.model))]).map((o) => <option key={o} value={o} />)}
+        </datalist>
+      </>
+    ) :
     f.type === 'file' ? <FileField f={f} value={v} onChange={onChange} entityType={KEY} entityId={isNew ? null : id} />
     : f.type === 'files' ? <FilesField f={f} value={v} onChange={onChange} entityType={KEY} entityId={isNew ? null : id} />
     : refPicker(f, v, onChange, refs ?? rec._refs);
@@ -60,11 +72,12 @@ export default function ProductPage() {
     setSaved(false);
     if (k === 'sku') setAuto((a) => ({ ...a, sku: false }));
     if (k === 'brand') setAuto((a) => ({ ...a, make: false }));
+    if (k === 'model') setAuto((a) => ({ ...a, model: false }));
     setValues((s) => ({ ...s, [k]: v }));
   };
 
   // New product: SKU and make follow the name/make/model until the user types their own (server keeps the SKU unique).
-  const [auto, setAuto] = useState(() => ({ sku: isNew && !search.get('sku'), make: isNew && !search.get('brand') }));
+  const [auto, setAuto] = useState(() => ({ sku: isNew && !search.get('sku'), make: isNew && !search.get('brand'), model: isNew && !search.get('model') }));
   const [roll, setRoll] = useState(0);
   const suggested = useRef({ sku: '', make: '' });
   const { name, brand, model } = values as { name?: string; brand?: string; model?: string };
@@ -82,6 +95,13 @@ export default function ProductPage() {
     }, 400);
     return () => clearTimeout(t);
   }, [isNew, auto, name, brand, model, roll]);
+  // Model follows the name (minus the brand) until typed, so "Hytera PD785" needs typing once, not twice.
+  useEffect(() => {
+    if (!isNew || !auto.model) return;
+    const words = String(name ?? '').trim().split(/\s+/).filter(Boolean);
+    const rest = brand && words[0]?.toLowerCase() === String(brand).toLowerCase() ? words.slice(1) : words;
+    setValues((v) => (v.model === (rest.join(' ') || null) ? v : { ...v, model: rest.join(' ') || null }));
+  }, [isNew, auto.model, name, brand]);
 
   const save = async () => {
     if (!r) return;
@@ -131,8 +151,8 @@ export default function ProductPage() {
                   <FormGrid fields={fs} values={values} onChange={change} renderRef={renderRef} disabled={!canEdit} />
                   {i === 0 && isNew && (
                     <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      {auto.sku ? 'SKU is made from the make, model or name.' : 'Using your own SKU.'}
-                      {auto.make && ' Make is picked up from the name.'}
+                      {auto.sku ? 'SKU is made from the brand, model or name.' : 'Using your own SKU.'}
+                      {auto.make && ' Brand is picked up from the name, model follows it.'}
                       <button type="button" className="text-primary hover:underline" onClick={() => { suggested.current.sku = String(values.sku ?? ''); setAuto((a) => ({ ...a, sku: true })); setRoll((x) => x + 1); }}>{auto.sku ? 'New SKU' : 'Generate SKU'}</button>
                     </p>
                   )}

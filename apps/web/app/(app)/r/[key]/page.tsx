@@ -2,11 +2,12 @@
 import { Button, DataView, EmptyState, ListParams, PageHeader, Row } from '@erp/ui';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api, openDoc, qs } from '@/lib/api';
 import { can, useMeta, useResource } from '@/lib/meta';
 import { renderRef } from '@/lib/RefPicker';
 import { AuthImage } from '@/lib/FilePanel';
+import { ProductImport } from '@/lib/ProductImport';
 
 export default function ListPage() {
   const { key } = useParams<{ key: string }>();
@@ -14,6 +15,7 @@ export default function ListPage() {
   const meta = useMeta();
   const router = useRouter();
   const search = useSearchParams();
+  const [importing, setImporting] = useState(false);
   const savedViews = useMemo(() => ({
     list: () => api<never[]>(`views/${key}`),
     save: (name: string, config: object) => api(`views/${key}`, 'POST', { name, config }),
@@ -34,6 +36,7 @@ export default function ListPage() {
         <>
           {(key === 'repair.job' || key === 'repair.intake') && <Link href="/repair/intake"><Button>New intake</Button></Link>}
           {key === 'hrm.payroll' && <Link href="/hrm/payroll"><Button>Run payroll</Button></Link>}
+          {key === 'inventory.product' && canCreate && <Button variant="outline" onClick={() => setImporting(true)}>Import</Button>}
           {canCreate && <Link href={`${r.createPath ?? `/r/${key}/new`}${fixedQs ? `?${fixedQs}` : ''}`}><Button>New</Button></Link>}
         </>
       } />
@@ -65,6 +68,7 @@ export default function ListPage() {
           ...(r.can.delete && (!r.ops || r.ops.includes('delete')) ? [{ label: 'Delete', run: async (rows: Row[]) => { if (confirm(`Delete ${rows.length} record(s)?`)) for (const x of rows) await api(`r/${key}/${x.id}`, 'DELETE'); } }] : []),
         ]}
       />
+      {key === 'inventory.product' && <ProductImport open={importing} onClose={() => setImporting(false)} kind={fixed.kind === 'part' ? 'part' : 'product'} />}
     </>
   );
 }

@@ -1,4 +1,6 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpException, Param, Post, Query, Res, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import ExcelJS from 'exceljs';
 import { docTotals, fromMinor, toMinor } from '@erp/shared';
 import type { Response } from 'express';
 import { z } from 'zod';
@@ -37,6 +39,40 @@ export function skuFor(p: { make?: string | null; model?: string | null; name?: 
   const model = clean(p.model).slice(0, 8) || String(p.name ?? '').toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean).map((w) => (/\d/.test(w) ? w : w[0])).join('').slice(0, 8);
   const tail = Array.from({ length: 4 }, () => '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(rand() * 32)]).join(''); // no 0/O/1/I
   return [make, model, tail].filter(Boolean).join('-');
+}
+
+/** Spreadsheet column → product field. Headers match loosely: case, spaces and _ ignored, common synonyms accepted. */
+const IMPORT_COLUMNS: Record<string, string> = {
+  name: 'name', itemname: 'name', productname: 'name', description: 'name',
+  sku: 'sku', code: 'sku', itemcode: 'sku', productcode: 'sku',
+  kind: 'kind', type: 'kind',
+  brand: 'brand', make: 'brand', manufacturer: 'brand',
+  model: 'model', barcode: 'barcode', otherbarcodes: 'barcodes', barcodes: 'barcodes',
+  price: 'price', saleprice: 'price', sellingprice: 'price',
+  reorderlevel: 'reorderLevel', reorder: 'reorderLevel', category: 'category', unit: 'unit',
+  serialized: 'serialized', serialised: 'serialized', trackserial: 'serialized',
+  warranty: 'warrantyMonths', warrantymonths: 'warrantyMonths', compatible: 'compatible', compatiblewith: 'compatible',
+};
+/** A failed row in words: field errors as "price: Expected number…", otherwise the message. */
+function rowError(e: unknown): string {
+  const r = e instanceof HttpException ? e.getResponse() : null;
+  const fe = r && typeof r === 'object' && 'fieldErrors' in r ? (r as { fieldErrors: Record<string, string[]> }).fieldErrors : null;
+  if (fe && Object.keys(fe).length) return Object.entries(fe).map(([k, v]) => `${k}: ${v.join(', ')}`).join(' · ');
+  return e instanceof Error ? e.message : String(e);
+}
+const yes = (v: string) => /^(y|yes|true|1|x)$/i.test(v.trim());
+
+/** One spreadsheet row as product fields (kind: "part"/"spare…" = part, anything else product). */
+export function importRow(headers: string[], cells: unknown[], defaultKind: 'product' | 'part'): Record<string, string> {
+  const out: Record<string, string> = {};
+  headers.forEach((h, i) => {
+    const key = IMPORT_COLUMNS[h.toLowerCase().replace(/[^a-z]/g, '')];
+    const raw = cells[i];
+    const v = String(raw && typeof raw === 'object' && 'text' in raw ? (raw as { text: unknown }).text : raw ?? '').trim();
+    if (key && v) out[key] = v;
+  });
+  out.kind = out.kind ? (/^(part|spare)/i.test(out.kind) ? 'part' : 'product') : defaultKind;
+  return out;
 }
 
 @Controller()
@@ -136,6 +172,86 @@ export class InventoryController {
       if (!(await this.prisma.product.findFirst({ where: { companyId: c, sku }, select: { id: true } }))) return { sku, make };
     }
     throw new BadRequestException('Could not find a free SKU; type one in');
+  }
+
+  /** Brands already in use (products and repair jobs) and each brand's models: the product form's dropdowns. */
+  @Get('inventory/products/options')
+  @Permissions('inventory.product.view')
+  async productOptions(@CurrentUser() user: AuthUser) {
+    const c = user.companyId;
+    const [p, j] = await Promise.all([
+      this.prisma.product.groupBy({ by: ['brand', 'model'], where: { companyId: c, deletedAt: null, brand: { not: null } }, orderBy: { brand: 'asc' }, take: 5000 }),
+      this.prisma.job.groupBy({ by: ['brand', 'model'], where: { companyId: c, deletedAt: null, brand: { not: null } }, orderBy: { brand: 'asc' }, take: 5000 }),
+    ]);
+    const all = [...p, ...j].map((x) => ({ brand: String(x.brand).trim(), model: String(x.model ?? '').trim() })).filter((x) => x.brand);
+    const brands = [...new Map(all.map((x) => [x.brand.toLowerCase(), x.brand])).values()].sort((a, b) => a.localeCompare(b));
+    return { brands, models: [...new Map(all.filter((x) => x.model).map((x) => [`${x.brand.toLowerCase()}|${x.model.toLowerCase()}`, x])).values()] };
+  }
+
+  /**
+   * Import products / parts from Excel or CSV. Without ?commit=1 it only previews (what each row would do, errors).
+   * A row whose SKU exists updates that item; a blank SKU is generated, a blank brand detected from the name.
+   */
+  @Post('inventory/products/import')
+  @Permissions('inventory.product.create')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024, files: 1 } }))
+  async importProducts(@CurrentUser() user: AuthUser, @UploadedFile() file: Express.Multer.File | undefined, @Query('commit') commit?: string, @Query('kind') kind?: string) {
+    if (!file?.buffer?.length) throw new BadRequestException('Choose an Excel (.xlsx) or CSV file');
+    const wb = new ExcelJS.Workbook();
+    try {
+      if (/\.csv$/i.test(file.originalname) || file.mimetype.includes('csv') || file.mimetype === 'text/plain') {
+        const { Readable } = await import('node:stream');
+        await wb.csv.read(Readable.from(file.buffer.toString('utf8')));
+      } else await wb.xlsx.load(file.buffer as unknown as ArrayBuffer);
+    } catch { throw new BadRequestException('Could not read the file — save it as .xlsx or .csv'); }
+    const sheet = wb.worksheets[0];
+    if (!sheet || sheet.rowCount < 2) throw new BadRequestException('The sheet has no rows under the header');
+    if (sheet.rowCount > 5001) throw new BadRequestException('Up to 5000 rows per import');
+    const headers = ((sheet.getRow(1).values as unknown[]) ?? []).slice(1).map((h) => String(h ?? ''));
+    if (!headers.some((h) => IMPORT_COLUMNS[h.toLowerCase().replace(/[^a-z]/g, '')] === 'name')) throw new BadRequestException('The sheet needs a "Name" column');
+    const c = user.companyId;
+    const md = await this.prisma.masterData.findMany({ where: { companyId: c, type: { in: ['product_category', 'unit'] }, deletedAt: null }, select: { id: true, type: true, name: true, code: true } });
+    const mdId = (type: string, v?: string) => v ? md.find((m) => m.type === type && [m.name, m.code].some((x) => x?.toLowerCase() === v.toLowerCase()))?.id : undefined;
+    const known = (await this.prisma.product.findMany({ where: { companyId: c, brand: { not: null } }, select: { brand: true }, distinct: ['brand'] })).map((x) => String(x.brand));
+    const taken = new Set<string>();
+    const results: { row: number; action: 'create' | 'update' | 'error'; sku?: string; name?: string; brand?: string | null; kind?: string; error?: string }[] = [];
+    for (let r = 2; r <= sheet.rowCount; r++) {
+      const cells = ((sheet.getRow(r).values as unknown[]) ?? []).slice(1);
+      if (!cells.some((x) => String(x ?? '').trim())) continue;
+      const v = importRow(headers, cells, kind === 'part' ? 'part' : 'product');
+      try {
+        if (!v.name) throw new BadRequestException('Name is empty');
+        // Numbers are checked here too, so the preview shows the same problems the import would hit.
+        for (const [k, label] of [['price', 'Price'], ['reorderLevel', 'Reorder level'], ['warrantyMonths', 'Warranty months']] as const) {
+          if (v[k] && !Number.isFinite(Number(v[k].replace(/,/g, '')))) throw new BadRequestException(`${label} "${v[k]}" is not a number`);
+        }
+        const brand = v.brand || makeFromName(v.name, known);
+        let sku = v.sku;
+        const existing = sku ? await this.prisma.product.findFirst({ where: { companyId: c, sku, deletedAt: null }, select: { id: true } }) : null;
+        if (!sku) {
+          for (let i = 0; i < 10 && (!sku || taken.has(sku) || (await this.prisma.product.findFirst({ where: { companyId: c, sku }, select: { id: true } }))); i++) sku = skuFor({ make: brand, model: v.model, name: v.name });
+        }
+        if (taken.has(sku!)) throw new BadRequestException(`SKU ${sku} appears twice in the file`);
+        taken.add(sku!);
+        const data: Row = {
+          name: v.name, sku, kind: v.kind, brand: brand || undefined, model: v.model, barcode: v.barcode, barcodes: v.barcodes,
+          price: v.price?.replace(/,/g, ''), reorderLevel: v.reorderLevel?.replace(/,/g, ''), compatible: v.compatible,
+          serialized: v.serialized !== undefined ? yes(v.serialized) : undefined, warrantyMonths: v.warrantyMonths ? Number(v.warrantyMonths) : undefined,
+          categoryId: mdId('product_category', v.category), unitId: mdId('unit', v.unit),
+        };
+        for (const k of Object.keys(data)) if (data[k] === undefined || data[k] === '') delete data[k];
+        if (v.category && !data.categoryId) throw new BadRequestException(`Unknown category "${v.category}" (add it in Master Data first)`);
+        if (commit === '1') {
+          if (existing) await this.resources.update(user, 'inventory.product', existing.id, data);
+          else await this.resources.create(user, 'inventory.product', data);
+        }
+        results.push({ row: r, action: existing ? 'update' : 'create', sku: sku!, name: v.name, brand: brand ?? null, kind: v.kind });
+      } catch (e) {
+        results.push({ row: r, action: 'error', sku: v.sku, name: v.name, error: rowError(e) });
+      }
+    }
+    const count = (a: string) => results.filter((x) => x.action === a).length;
+    return { committed: commit === '1', created: count('create'), updated: count('update'), errors: count('error'), rows: results };
   }
 
   @Get('inventory/low-stock')

@@ -275,6 +275,36 @@ test('sale out: a gatepass sells from the store, invoices the customer and recor
   assert.equal(look.customer.id, ctx.customer.id, 'repair intake knows whose unit it is');
 });
 
+test('products import: preview, generated SKU and brand, update by SKU, row problems', async () => {
+  await call('POST', 'r/inventory.product', { sku: `IMP-OLD-${run}`, name: 'Old name', price: '1' });
+  const csv = [
+    'Item Name,Item Code,Type,Make,Model,Sale Price,Track serial,Category',
+    `Motorola charger ${run},,Spare part,,CH-1,"1,250",no,`,
+    `Renamed ${run},IMP-OLD-${run},,,,,,`,
+    `,,,,,,,`,
+    `Bad price ${run},,,,,abc,,`,
+    `Unknown cat ${run},,,,,10,,Nonexistent ${run}`,
+  ].join('\n');
+  const send = async (commit: boolean) => {
+    const fd = new FormData();
+    fd.append('file', new Blob([csv], { type: 'text/csv' }), 'items.csv');
+    const r = await fetch(`${API}/inventory/products/import?kind=product${commit ? '&commit=1' : ''}`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd });
+    assert.equal(r.status, 201, await r.clone().text());
+    return r.json();
+  };
+  const pre = await send(false);
+  assert.deepEqual([pre.committed, pre.created, pre.updated, pre.errors], [false, 1, 1, 2]);
+  assert.equal((await list('inventory.product', { name: `Motorola charger ${run}` })).length, 0, 'preview saves nothing');
+  const row = pre.rows.find((x: J) => x.name === `Motorola charger ${run}`);
+  assert.deepEqual([row.brand, row.kind], ['Motorola', 'part']);
+  assert.match(row.sku, /^MOT-CH1-/);
+  const done = await send(true);
+  assert.deepEqual([done.created, done.updated, done.errors], [1, 1, 2]);
+  const made = (await list('inventory.product', { name: `Motorola charger ${run}` }))[0];
+  assert.deepEqual([made.kind, made.brand, Number(made.price), made.serialized], ['part', 'Motorola', 1250, false]);
+  assert.equal((await list('inventory.product', { sku: `IMP-OLD-${run}` }))[0].name, `Renamed ${run}`, 'existing SKU updated');
+});
+
 test('Gatepass: demo out → partial return → convert rest to sale', async () => {
   const gp = await call('POST', 'r/gatepass.pass', {
     type: 'demo_out', partyName: 'Client Org', customerId: ctx.customer.id, fromWarehouseId: ctx.wh, expectedReturn: '2026-10-01',

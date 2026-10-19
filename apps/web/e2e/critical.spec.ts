@@ -455,10 +455,10 @@ test('new product: typing the name fills make and a SKU', async ({ page, request
   await request.post('/api/r/inventory.product', { headers: { Authorization: `Bearer ${accessToken}` }, data: { sku: `ZK-${run}`, name: 'seed', brand: `Zeko${run}`, price: '1' } });
   await page.goto('/inventory/products/new');
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill(`Zeko${run} handheld radio`);
-  await expect(page.getByRole('textbox', { name: 'Make', exact: true })).toHaveValue(`Zeko${run}`);
+  await expect(page.getByRole('combobox', { name: 'Brand', exact: true })).toHaveValue(`Zeko${run}`);
   await expect(page.getByRole('textbox', { name: 'SKU / item code', exact: true })).toHaveValue(/^ZEK-[A-Z0-9]+-[2-9A-HJ-NP-Z]{4}$/);
   await page.getByRole('textbox', { name: 'SKU / item code', exact: true }).fill(`MY-${run}`);
-  await page.getByRole('textbox', { name: 'Model', exact: true }).fill('X1');
+  await page.getByRole('combobox', { name: 'Model', exact: true }).fill('X1');
   await page.waitForTimeout(700);
   await expect(page.getByRole('textbox', { name: 'SKU / item code', exact: true })).toHaveValue(`MY-${run}`, { timeout: 1 }); // own SKU kept
 });
@@ -487,4 +487,16 @@ test('spare parts: own menu and list; New starts a spare part', async ({ page })
   await expect(page).toHaveURL(/\/inventory\/products\/new\?kind=part/);
   await expect(page.getByRole('heading', { name: 'New spare part' })).toBeVisible();
   await expect(page.getByText('Repair › Spare parts')).toBeVisible();
+});
+
+test('products: import a CSV — preview, generated SKUs, then import', async ({ page }) => {
+  const csv = `Name,Type,Brand,Model,Price\nImport radio ${run},Product,Kenwood,NX${run},1000\nImport battery ${run},Part,,,250\n,,,,\n`;
+  await page.goto('/r/inventory.product?kind=product');
+  await page.getByRole('button', { name: 'Import' }).click();
+  await page.getByLabel('Import file').setInputFiles({ name: 'items.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await page.getByRole('button', { name: 'Check file' }).click();
+  await expect(page.getByText('Ready:')).toBeVisible();
+  await expect(page.getByRole('dialog').getByText(`Import battery ${run}`)).toBeVisible();
+  await page.getByRole('button', { name: 'Import 2 rows' }).click();
+  await expect(page.getByText('Imported:')).toBeVisible();
 });
