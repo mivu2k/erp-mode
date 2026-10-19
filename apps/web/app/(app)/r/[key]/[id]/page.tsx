@@ -9,6 +9,7 @@ import { fromMinor, IMMUTABLE, nextInstallment, toMinor, type ActionField } from
 import { renderRef as refPicker } from '@/lib/RefPicker';
 import { Attachments, FileField, FilesField } from '@/lib/FilePanel';
 import { UserRoles } from '@/lib/UserRoles';
+import { JobParts } from '@/lib/JobParts';
 import { UtilityBillDialog } from '@/lib/UtilityBillDialog';
 import { ClaimProgress, DiagnosisHistory, DocHeader, RepairUnit, JournalLines, JsonLines, objectList, ReadDetails, ReadLines } from '@/lib/ReadView';
 import { autofillPatch, computeFields, evalExpr } from '@/lib/autofill';
@@ -195,6 +196,7 @@ export default function RecordPage() {
                 {r.fields.filter((f) => f.type === 'json' && objectList(rec[f.name]) && !lineCols[f.name]).map((f) => <JsonLines key={f.name} title={humanize(f.name)} rows={rec[f.name] as Rec[]} />)}
                 {(key === 'repair.quotation' || key === 'repair.invoice') && typeof rec.jobId === 'string' && <RepairUnit jobId={rec.jobId} />}
                 {key === 'finance.claim' && rec.booked === true && <ClaimProgress rec={rec} />}
+                {(key === 'repair.job' || key === 'fleet.maintenance') && <JobParts jobId={id} onChanged={load} />}
                 {key === 'repair.job' && <DiagnosisHistory diagnosis={rec.diagnosis} />}
                 {key === 'finance.journal' && <JournalLines rec={rec} />}
                 {key !== 'finance.journal' && Object.entries(r.children).map(([rel, fields]) => <ReadLines key={rel} title={humanize(rel)} rows={(rec[rel] as Rec[]) ?? []} fields={fields} />)}
@@ -204,6 +206,7 @@ export default function RecordPage() {
             <Card title={isNew ? 'Details' : undefined}>
               <FormGrid fields={formFields} values={values} disabled={!editable} renderRef={renderRef} onChange={change} />
             </Card>
+            {(key === 'repair.job' || key === 'fleet.maintenance') && !isNew && <JobParts jobId={id} onChanged={load} />}
             {key === 'repair.job' && !isNew && <DiagnosisHistory diagnosis={rec.diagnosis} />}
             {Object.entries(r.children).map(([rel, fields]) => (
               <Card key={rel} title={humanize(rel)}>

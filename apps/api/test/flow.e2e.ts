@@ -253,6 +253,15 @@ test('spare parts: own kind and list; issue parts defaults to the Workshop store
   await call('POST', `repair/quotations/${d.quotation.id}/decision`, { accepted: true, via: 'phone' });
   await call('POST', `repair/jobs/${jobs[0].id}/issue-parts`, {}); // no store picked
   assert.equal(Number((await list('inventory.stock', { productId: part.id, warehouseId: ws.id }))[0].qty), 3, 'taken from the Workshop store');
+  // The job's Parts card: reserved / issued / returned / in use, store stock, and the movements.
+  let card = await call('GET', `repair/jobs/${jobs[0].id}/parts`);
+  assert.deepEqual([card.parts[0].reserved, card.parts[0].issued, card.parts[0].inUse, card.parts[0].toIssue, card.parts[0].inStore], [2, 2, 2, 0, 3]);
+  assert.equal(card.store.id, ws.id);
+  assert.deepEqual([card.movements[0].type, card.movements[0].qty], ['job_issue', -2]);
+  await call('POST', `repair/jobs/${jobs[0].id}/return-parts`, { lines: [{ partId: card.parts[0].id, qty: 1 }] });
+  card = await call('GET', `repair/jobs/${jobs[0].id}/parts`);
+  assert.deepEqual([card.parts[0].returned, card.parts[0].inUse, card.parts[0].inStore], [1, 1, 4]);
+  assert.equal(card.movements[0].type, 'job_return');
 });
 
 test('sale out: a gatepass sells from the store, invoices the customer and records who owns each serial', async () => {

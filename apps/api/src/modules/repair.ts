@@ -287,6 +287,42 @@ export class RepairController {
     });
   }
 
+  /**
+   * A job's parts at a glance: each part reserved from the accepted quotation (reserved / issued / returned / in use),
+   * what the Workshop store has of it, and every issue/return movement — what the job page's Parts card shows.
+   */
+  @Get('repair/jobs/:id/parts')
+  async jobParts(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    const kind = (await this.prisma.job.findFirst({ where: { id, companyId: user.companyId }, select: { kind: true } }))?.kind;
+    await this.prisma.$transaction((tx) => this.resources.load(tx, user, kind === 'fleet' ? 'fleet.maintenance' : 'repair.job', id, 'view'));
+    const c = user.companyId;
+    const [parts, moves, ws] = await Promise.all([
+      this.prisma.jobPart.findMany({ where: { jobId: id } }),
+      this.prisma.stockMovement.findMany({ where: { companyId: c, refType: 'repair.job', refId: id }, orderBy: { at: 'desc' }, take: 200 }),
+      this.prisma.warehouse.findFirst({ where: { companyId: c, kind: 'repair', deletedAt: null }, orderBy: { createdAt: 'asc' }, select: { id: true, name: true } }),
+    ]);
+    const productIds = [...new Set([...parts.map((p) => p.productId), ...moves.map((m) => m.productId)])];
+    const [products, stock, warehouses, users] = await Promise.all([
+      this.prisma.product.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true, sku: true, serialized: true } }),
+      ws ? this.prisma.stockLevel.findMany({ where: { warehouseId: ws.id, productId: { in: productIds } }, select: { productId: true, qty: true } }) : [],
+      this.prisma.warehouse.findMany({ where: { id: { in: [...new Set(moves.map((m) => m.warehouseId))] } }, select: { id: true, name: true } }),
+      this.prisma.user.findMany({ where: { id: { in: [...new Set(moves.map((m) => m.userId).filter((x): x is string => !!x))] } }, select: { id: true, name: true } }),
+    ]);
+    const prod = new Map(products.map((p) => [p.id, p]));
+    const onHand = new Map(stock.map((x) => [x.productId, Number(x.qty)]));
+    const wName = new Map(warehouses.map((w) => [w.id, w.name]));
+    const uName = new Map(users.map((u) => [u.id, u.name]));
+    return {
+      store: ws,
+      parts: parts.map((p) => ({
+        id: p.id, productId: p.productId, name: prod.get(p.productId)?.name ?? '?', sku: prod.get(p.productId)?.sku, serialized: !!prod.get(p.productId)?.serialized,
+        reserved: Number(p.qty), issued: Number(p.issuedQty), returned: Number(p.returnedQty), inUse: Number(p.issuedQty) - Number(p.returnedQty),
+        toIssue: Math.max(Number(p.qty) - Number(p.issuedQty), 0), unitCost: Number(p.unitCost), serial: p.serial, inStore: onHand.get(p.productId) ?? 0,
+      })),
+      movements: moves.map((m) => ({ at: m.at, type: m.type, part: prod.get(m.productId)?.name ?? '?', qty: Number(m.qty), serial: m.serial, store: wName.get(m.warehouseId) ?? '', by: m.userId ? uName.get(m.userId) ?? '' : '' })),
+    };
+  }
+
   @Post('repair/jobs/:id/return-parts')
   @Permissions('inventory.movement.create')
   async returnParts(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {

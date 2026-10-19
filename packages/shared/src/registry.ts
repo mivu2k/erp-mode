@@ -424,8 +424,6 @@ export const RESOURCES: ResourceDef[] = [
           parts: { type: 'lines', columns: { productId: { type: 'ref', ref: 'inventory.product', required: true, label: 'Part', filters: { kind: 'part' } }, qty: { type: 'number', required: true } } },
         },
       },
-      { name: 'issue', label: 'Issue parts', path: 'repair/jobs/:id/issue-parts', fields: { warehouseId: { type: 'ref', ref: 'inventory.warehouse', label: 'Store (empty = Workshop store)' } }, permission: 'inventory.movement.create' },
-      { name: 'return-parts', label: 'Return unused parts', path: 'repair/jobs/:id/return-parts', fields: { warehouseId: { type: 'ref', ref: 'inventory.warehouse', label: 'Store (empty = Workshop store)' } }, permission: 'inventory.movement.create' },
       {
         name: 'test', label: 'Record QC test', path: 'repair/jobs/:id/test', when: ['in_repair', 'qc'],
         fields: {
