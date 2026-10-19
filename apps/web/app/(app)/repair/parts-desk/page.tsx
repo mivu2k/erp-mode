@@ -2,7 +2,7 @@
 import { Button, Card, EmptyState, ErrorBox, Input, PageHeader } from '@erp/ui';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, openDoc } from '@/lib/api';
 
 interface Row { id: string; jobId: string; job: string; device: string; technician: string; part: string; sku?: string; serialized: boolean; requested: number; requestedAt: string | null; handback: number; inStore: number }
 const n = (v: number) => v.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -34,7 +34,7 @@ export default function PartsDesk() {
           const rs = j.filter((r) => r.requested > 0);
           return (
             <Card key={`i${j[0].jobId}`} title={<span><Link className="text-primary hover:underline" href={`/r/repair.job/${j[0].jobId}`}>{j[0].job}</Link> <span className="text-sm font-normal text-muted-foreground">{j[0].device} · asked by {j[0].technician || '—'}{rs[0].requestedAt ? ` · ${new Date(rs[0].requestedAt).toLocaleString()}` : ''}</span></span>}
-              actions={<Button size="sm" disabled={!!busy} onClick={() => run(`i${j[0].jobId}`, `repair/jobs/${j[0].jobId}/issue-parts`, { serials: Object.fromEntries(rs.filter((r) => serials[r.id]).map((r) => [r.id, serials[r.id].split(/[\s,;]+/).filter(Boolean)])) })}>{busy === `i${j[0].jobId}` ? 'Issuing…' : 'Issue'}</Button>}>
+              actions={<div className="flex gap-1.5"><Button size="sm" variant="ghost" onClick={() => openDoc(`print/repair.job/${j[0].jobId}?size=80`).catch(setError)}>Slip</Button><Button size="sm" disabled={!!busy} onClick={() => run(`i${j[0].jobId}`, `repair/jobs/${j[0].jobId}/issue-parts`, { serials: Object.fromEntries(rs.filter((r) => serials[r.id]).map((r) => [r.id, serials[r.id].split(/[\s,;]+/).filter(Boolean)])) })}>{busy === `i${j[0].jobId}` ? 'Issuing…' : 'Issue'}</Button></div>}>
               <ul className="divide-y divide-border/60 text-sm">
                 {rs.map((r) => (
                   <li key={r.id} className="flex flex-wrap items-center justify-between gap-3 py-2">
@@ -54,7 +54,7 @@ export default function PartsDesk() {
       <div className="space-y-3">
         {back.map((j) => (
           <Card key={`r${j[0].jobId}`} title={<span><Link className="text-primary hover:underline" href={`/r/repair.job/${j[0].jobId}`}>{j[0].job}</Link> <span className="text-sm font-normal text-muted-foreground">{j[0].device} · {j[0].technician || '—'}</span></span>}
-            actions={<Button size="sm" variant="outline" disabled={!!busy} onClick={() => run(`r${j[0].jobId}`, `repair/jobs/${j[0].jobId}/return-parts`, { lines: j.filter((r) => r.handback > 0).map((r) => ({ partId: r.id, qty: r.handback })) })}>{busy === `r${j[0].jobId}` ? 'Receiving…' : 'Receive into store'}</Button>}>
+            actions={<div className="flex gap-1.5"><Button size="sm" variant="ghost" onClick={() => openDoc(`print/repair.job/${j[0].jobId}?size=80`).catch(setError)}>Slip</Button><Button size="sm" variant="outline" disabled={!!busy} onClick={() => run(`r${j[0].jobId}`, `repair/jobs/${j[0].jobId}/return-parts`, { lines: j.filter((r) => r.handback > 0).map((r) => ({ partId: r.id, qty: r.handback })) })}>{busy === `r${j[0].jobId}` ? 'Receiving…' : 'Receive into store'}</Button></div>}>
             <ul className="divide-y divide-border/60 text-sm">
               {j.filter((r) => r.handback > 0).map((r) => <li key={r.id} className="flex justify-between py-2"><span>{r.part} <span className="text-xs text-muted-foreground">{r.sku}</span></span><b className="tabular-nums">{n(r.handback)}</b></li>)}
             </ul>

@@ -31,7 +31,9 @@ export class PdfService implements OnModuleDestroy {
       // Rendered documents are self-contained: no request may leave the renderer (custom brochure HTML/CSS included).
       await page.route(/^(?!data:)/, (r) => r.abort());
       await page.setContent(html.replace(/<script[\s\S]*?<\/script>/g, ''), { waitUntil: 'load', timeout: 15_000 });
-      const pdf = await page.pdf(thermalWidthMm ? { width: `${thermalWidthMm}mm`, printBackground: true } : { preferCSSPageSize: true, printBackground: true, format: 'A4' });
+      // A slip is one strip as long as its content, not Letter-sized pages.
+      const height = thermalWidthMm ? Math.ceil((await page.evaluate(() => document.body.scrollHeight)) * 25.4 / 96 + 4) : 0;
+      const pdf = await page.pdf(thermalWidthMm ? { width: `${thermalWidthMm}mm`, height: `${height}mm`, printBackground: true, margin: { top: 0, right: 0, bottom: 0, left: 0 } } : { preferCSSPageSize: true, printBackground: true, format: 'A4' });
       return Buffer.from(pdf);
     } finally {
       await page.close();

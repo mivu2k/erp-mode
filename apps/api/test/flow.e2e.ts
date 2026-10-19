@@ -134,6 +134,9 @@ test('Repair: intake → diagnose/quote → accept → issue → invoice → pay
   const card = await (await fetch(`${API}/print/repair.job/${jobId}`, { headers: { Authorization: `Bearer ${token}` } })).text();
   assert.match(card, /Fitted/, 'job card lists the parts put into the unit');
   assert.ok(card.includes(ctx.screen.name), 'by name');
+  const slip = await (await fetch(`${API}/print/repair.job/${jobId}?size=80`, { headers: { Authorization: `Bearer ${token}` } })).text();
+  assert.match(slip, /@page \{ size: 80mm 297mm/, '80mm slip has a valid page size (not "auto", which Chrome drops and prints on Letter)');
+  assert.ok(slip.includes(ctx.screen.name), 'slip lists the parts too');
   // Statuses follow the work: no manual moves. Ready still needs a passing test.
   await assert.rejects(call('POST', `repair/jobs/${jobId}/status`, { status: 'ready' }), /Cannot move|passing QC test/);
   await call('POST', `repair/jobs/${jobId}/test`, { rfPowerW: 1.2, freqErrorHz: 900, vswr: 3.1, pass: false, notes: 'High VSWR' });

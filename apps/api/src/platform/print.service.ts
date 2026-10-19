@@ -156,7 +156,9 @@ ${d.signatures?.length ? `<div class="signs">${d.signatures.map((s) => `<div>${e
     const sign = d.signatures?.length ? `<div class="sign">${d.signatures.map((x) => `<div>${esc(x)}</div>`).join('')}</div>` : '';
     return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(d.title)} ${esc(d.number)}</title>
 <style>
-  @page { size: ${d.size}mm auto; margin: 0; }
+  /* An "auto" height is not valid CSS (Chrome then prints on Letter/A4 and the roll printer crops it): a real page size, and the
+     load script below sets the height to the slip's own length so it prints as one strip. */
+  @page { size: ${d.size}mm 297mm; margin: 0; }
   * { box-sizing: border-box; }
   body { width: ${w}mm; margin: 0 auto; padding: 3mm 0; font: ${d.size === '58' ? 10 : 11}px/1.35 ui-monospace, 'DejaVu Sans Mono', Menlo, monospace; color: #000; }
   .c { text-align: center; }
@@ -202,7 +204,7 @@ ${d.note ? `<div class="note">${esc(d.note)}</div>` : ''}
 ${sign}
 <hr><div class="c muted" style="white-space:pre-line">${esc(b.terms ?? b.footer ?? 'Thank you!')}</div>
 <div class="c muted" style="font-size:.85em">${esc(new Date().toLocaleString('en-GB'))}</div>
-<button class="noprint" onclick="print()">Print</button><script>addEventListener('load',()=>print())</script>
+<button class="noprint" onclick="print()">Print</button><script>addEventListener('load',()=>{const s=document.createElement('style');s.textContent='@page{size:${d.size}mm '+Math.ceil(document.body.scrollHeight*25.4/96+4)+'mm;margin:0}';document.head.appendChild(s);print()})</script>
 </body></html>`;
   }
 
