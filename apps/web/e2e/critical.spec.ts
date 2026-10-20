@@ -612,3 +612,10 @@ test('saved report opens as a report: results, role names, plain email settings'
   expect(after.recipients).toEqual(['boss@example.com']);
   expect(after.sharedRoles).toHaveLength(1);
 });
+
+test('saved reports: New opens the report builder, not a JSON form', async ({ page }) => {
+  await page.goto('/r/reports.report');
+  await page.getByRole('link', { name: 'New' }).click();
+  await expect(page).toHaveURL(/\/reports\?tab=builder/);
+  await expect(page.getByRole('heading', { name: 'Report builder' })).toBeVisible();
+});

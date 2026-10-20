@@ -1,6 +1,7 @@
 'use client';
 import { BarChart, Button, Card, EmptyState, ErrorBox, humanize, Input, KpiCard, Label, PageHeader, Select, Tabs, Textarea } from '@erp/ui';
 import { StandardReports } from './StandardReports';
+import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { api, openDoc, raw } from '@/lib/api';
 import { useMeta } from '@/lib/meta';
@@ -42,7 +43,7 @@ function Builder() {
   const save = async () => {
     const name = prompt('Report name');
     if (!name) return;
-    try { await api('r/reports.report', 'POST', { name, definition: body().definition }); loadSaved(); } catch (e) { setError(e); }
+    try { const rec = await api<{ id: string }>('r/reports.report', 'POST', { name, definition: body().definition }); window.location.assign(`/reports/saved/${rec.id}`); } catch (e) { setError(e); }
   };
 
   const y = out && def.groupBy.length ? out.columns.find((c) => c !== def.groupBy[0] && c !== 'count' && !def.groupBy.includes(c)) ?? 'count' : null;
@@ -135,7 +136,8 @@ function Builder() {
 export default function Reports() {
   const meta = useMeta();
   const canBuild = meta.user.permissions['reports.builder.view'] !== undefined;
-  const [tab, setTab] = useState('standard');
+  // ?tab=builder (e.g. "New" on saved reports) opens straight on the builder.
+  const [tab, setTab] = useState(useSearchParams().get('tab') === 'builder' && canBuild ? 'builder' : 'standard');
   return (
     <>
       {tab === 'standard' && <PageHeader title="Reports" subtitle="Standard reports for every module — pick one, set the period, export" />}

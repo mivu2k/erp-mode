@@ -600,7 +600,7 @@ export const RESOURCES: ResourceDef[] = [
   },
 
   // ─── Reports ───────────────────────────────────────────────
-  { key: 'reports.report', model: 'SavedReport', label: 'Saved Reports', title: 'name', list: ['name', 'description', 'schedule'], owner: 'createdById' },
+  { key: 'reports.report', model: 'SavedReport', label: 'Saved Reports', title: 'name', list: ['name', 'description', 'schedule'], owner: 'createdById', createPath: '/reports?tab=builder' },
   { key: 'reports.dashboard', model: 'Dashboard', label: 'Dashboards', title: 'name', list: ['name', 'roleId', 'userId'], refs: { roleId: 'core.role', userId: 'core.user' } },
 ];
 
