@@ -58,6 +58,7 @@ function Builder() {
                 {saved.map((s) => (
                   <li key={s.id} className="flex items-center justify-between gap-2">
                     <button className="truncate text-start text-primary hover:underline" onClick={() => { setDef({ ...s.definition, columns: s.definition.columns ?? [], groupBy: s.definition.groupBy ?? [], aggregates: s.definition.aggregates ?? [], filters: {} }); setFiltersText(JSON.stringify(s.definition.filters ?? {}, null, 1)); setOut(null); }}>{s.name}</button>
+                    <a className="text-xs text-muted-foreground hover:underline" href={`/reports/saved/${s.id}`}>Open</a>
                     <Button size="sm" variant="ghost" onClick={() => openDoc(`reports/${s.id}/run?format=html&from=${params.from}&to=${params.to}&period=${params.period}`)}>Print</Button>
                   </li>
                 ))}

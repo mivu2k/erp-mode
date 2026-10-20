@@ -52,6 +52,7 @@ export default function RecordPage() {
 
   // Products have their own screen (structured form, barcodes, stock); keep any prefill query (?barcode=…).
   useEffect(() => { if (key === 'inventory.product') router.replace(`/inventory/products/${id}${search.toString() ? `?${search}` : ''}`); }, [key, id, router, search]);
+  useEffect(() => { if (key === 'reports.report' && !isNew) router.replace(`/reports/saved/${id}`); }, [key, id, isNew, router]);
 
   const load = useCallback(() => {
     if (isNew) return;

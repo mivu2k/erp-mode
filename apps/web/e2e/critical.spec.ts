@@ -593,3 +593,22 @@ test('saved intake: Print button with A4, A5 and POS slip', async ({ page, reque
   await expect(page.getByRole('button', { name: 'POS receipt (80mm)' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Print (A5)' })).toBeVisible();
 });
+
+test('saved report opens as a report: results, role names, plain email settings', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const rep = await (await request.post('/api/r/reports.report', { headers: auth, data: { name: `Jobs ${run}`, definition: { resource: 'repair.job', columns: [], groupBy: ['status'], aggregates: [], filters: {} } } })).json();
+  await page.goto(`/r/reports.report/${rep.id}`);
+  await expect(page).toHaveURL(new RegExp(`/reports/saved/${rep.id}`));
+  await expect(page.getByRole('heading', { name: `Jobs ${run}` })).toBeVisible();
+  await expect(page.getByText(/\d+ rows/)).toBeVisible();
+  await page.getByLabel('Technician').check();
+  await page.getByLabel('Email it').selectOption('weekly');
+  await page.getByLabel('To (emails)').fill('boss@example.com');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect(page.getByRole('status')).toHaveText('Saved');
+  const after = await (await request.get(`/api/r/reports.report/${rep.id}`, { headers: auth })).json();
+  expect(after.schedule).toBe('weekly');
+  expect(after.recipients).toEqual(['boss@example.com']);
+  expect(after.sharedRoles).toHaveLength(1);
+});
