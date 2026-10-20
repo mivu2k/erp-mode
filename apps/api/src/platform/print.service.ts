@@ -160,10 +160,12 @@ ${d.signatures?.length ? `<div class="signs">${d.signatures.map((s) => `<div>${e
      load script below sets the height to the slip's own length so it prints as one strip. */
   @page { size: ${d.size}mm 297mm; margin: 0; }
   * { box-sizing: border-box; }
-  body { width: ${w}mm; margin: 0 auto; padding: 3mm 0; font: ${d.size === '58' ? 10 : 11}px/1.35 ui-monospace, 'DejaVu Sans Mono', Menlo, monospace; color: #000; }
+  body { width: ${w}mm; margin: 0 auto; padding: 3mm 0; font: 600 ${d.size === '58' ? 10 : 11}px/1.35 ui-monospace, 'DejaVu Sans Mono', Menlo, monospace; color: #000; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  /* Thermal heads print grey as faint dots: everything is solid black, a little heavier than on screen. */
+  b, .co, .title, .num, .h, .total { font-weight: 800; }
   .c { text-align: center; }
   .co { font-weight: 700; font-size: 1.25em; }
-  .muted { color: #333; }
+  .muted { color: #000; }
   .title { margin: 2mm 0 0; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
   .num { font-weight: 700; }
   hr { border: 0; border-top: 1px dashed #000; margin: 2mm 0; }
@@ -198,7 +200,7 @@ ${body}
 ${items ? `<hr>${items}` : ''}
 ${d.totals?.length ? `<hr>${d.totals.map(([k, v], i) => row(esc(k), esc(money(v)), i === d.totals!.length - 1 ? 'total' : '')).join('')}` : ''}
 ${d.words ? `<div class="note"><b>In words:</b> ${esc(d.words)}</div>` : ''}
-<div class="codes">${d.barcode ? `<div class="bc">${this.barcodeSvg(d.barcode)}</div>` : ''}${d.qr ? `<div class="qr">${this.qrSvg(d.qr)}</div>` : ''}</div>
+<div class="codes">${d.qr ? `<div class="qr">${this.qrSvg(d.qr)}</div>` : d.barcode ? `<div class="qr">${this.qrSvg(d.barcode)}</div>` : ''}</div>
 ${d.qr && d.footer ? `<div class="qrcap">${esc(d.footer)}</div>` : ''}
 ${d.note ? `<div class="note">${esc(d.note)}</div>` : ''}
 ${sign}
@@ -208,9 +210,9 @@ ${sign}
 </body></html>`;
   }
 
-  /** Small sticker: barcode + name (products, job tags, asset tags). */
+  /** Small sticker: QR + name (products, job tags, asset tags) — QR scans from the app's camera where barcodes don't. */
   label(title: string, subtitle: string, code: string) {
-    return this.labels(title, subtitle, [code], 1);
+    return this.labels(title, subtitle, [code], 1, true);
   }
 
   /** A run of 50×30 mm labels, one per page (label printers cut on page breaks): each code × copies. */
@@ -224,7 +226,7 @@ ${sign}
         ? `<div class="l q"><div class="qr">${this.qrSvg(code)}</div><div class="t"><b>${esc(title)}</b><div class="s">${esc(sub)}</div><div class="c">${esc(code)}</div></div></div>`
         : `<div class="l"><b>${esc(title)}</b><div class="s">${esc(sub)}</div>${this.barcodeSvg(code)}</div>`;
     };
-    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} labels</title><style>@page{size:50mm 30mm;margin:1mm}body{font:10px system-ui;margin:0;text-align:center}
+    return `<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)} labels</title><style>@page{size:50mm 30mm;margin:1mm}body{font:700 10px system-ui;margin:0;text-align:center;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}svg path,svg rect:not([fill="#fff"]):not([fill="white"]){shape-rendering:crispEdges}
 .l{height:27.5mm;overflow:hidden;break-after:page}.l:last-child{break-after:auto}.l b{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.s{font-size:8px}svg{width:46mm;height:14mm}
 *{box-sizing:border-box}.l{padding:.5mm 1mm}
 /* QR: white quiet zone (≥ 4 modules) all round so it scans off paper; text in its own column, never past the edge. */
@@ -291,6 +293,29 @@ h1{font-size:11pt;margin:0;line-height:1.15}.role{color:${p};font-weight:600;fon
 </section>
 <button class="noprint" onclick="print()">Print</button><script>addEventListener('load',()=>print())</script>
 </body></html>`;
+  }
+
+  /** Employee card as a 50×80 mm thermal sticker: black on white only (no colour, no grey), big QR for the kiosk / app. */
+  idSticker(d: { company: { name: string }; name: string; code: string; designation?: string; department?: string; branch?: string; photoUrl: string | null; qr: string; phone?: string | null }) {
+    const initials = d.name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+    return `<!doctype html><html><head><meta charset="utf-8"><title>Employee sticker — ${esc(d.name)}</title><style>
+@page{size:50mm 80mm;margin:0}
+*{box-sizing:border-box}body{margin:0;font:700 8pt/1.25 system-ui,'DejaVu Sans',sans-serif;color:#000;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+@media screen{body{background:#e2e8f0;padding:6mm}.card{margin:auto;background:#fff}}
+.card{width:50mm;height:80mm;overflow:hidden;padding:2.5mm;display:flex;flex-direction:column;align-items:center;text-align:center;gap:1mm}
+.co{font-size:8pt;font-weight:800;text-transform:uppercase;letter-spacing:.04em;border-bottom:.5mm solid #000;width:100%;padding-bottom:1mm}
+.photo{width:20mm;height:20mm;border:.5mm solid #000;display:grid;place-items:center;font-size:14pt;font-weight:800;overflow:hidden;margin-top:1mm}
+.photo img{width:100%;height:100%;object-fit:cover;filter:grayscale(1) contrast(1.4)}
+h1{font-size:10.5pt;font-weight:800;margin:0;line-height:1.1;overflow-wrap:anywhere}.sub{font-size:7.5pt;overflow-wrap:anywhere}
+.qr{background:#fff;padding:1mm;margin-top:auto}.qr svg{display:block;width:24mm;height:24mm}
+.id{font:800 9.5pt ui-monospace,'DejaVu Sans Mono',monospace;letter-spacing:.06em}
+.noprint{position:fixed;right:4mm;bottom:4mm}@media print{.noprint{display:none}}
+</style></head><body><section class="card">
+<div class="co">${esc(d.company.name)}</div>
+<div class="photo">${d.photoUrl ? `<img src="${esc(d.photoUrl)}" alt="">` : esc(initials)}</div>
+<h1>${esc(d.name)}</h1>${d.designation ? `<div class="sub">${esc(d.designation)}</div>` : ''}${d.department || d.branch ? `<div class="sub">${esc([d.department, d.branch].filter(Boolean).join(' · '))}</div>` : ''}
+<div class="qr">${this.qrSvg(d.qr)}</div><div class="id">${esc(d.code)}</div>
+</section><button class="noprint" onclick="print()">Print</button><script>addEventListener('load',()=>print())</script></body></html>`;
   }
 
   /** Mustache-lite for admin-edited templates: {{field}} (escaped) and {{{raw}}}. */

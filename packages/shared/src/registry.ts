@@ -162,6 +162,7 @@ export const RESOURCES: ResourceDef[] = [
     actions: [
       { name: 'create-user', label: 'Create user account', path: 'hrm/employees/:id/create-user', fields: { email: { type: 'string', required: true }, password: { type: 'string', required: true } }, permission: 'core.user.create' },
       { name: 'id-card', label: 'Print ID card', path: 'print/hrm.employee/:id?template=idcard', opens: true, permission: 'hrm.employee.print' },
+      { name: 'id-sticker', label: 'Print ID sticker (50×80 POS)', path: 'print/hrm.employee/:id?template=idsticker', opens: true, permission: 'hrm.employee.print' },
       { name: 'statement', label: 'Ledger', path: 'finance/statement/employee/:id', opens: true, permission: 'finance.statement.view' },
     ],
   },

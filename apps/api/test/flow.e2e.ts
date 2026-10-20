@@ -235,7 +235,7 @@ test('products: optional, multiple barcodes; any of them scans; one barcode neve
 
   // Labels: every barcode by default, or the picked ones, × copies (one 50×30 label per page).
   const html = async (q: string) => (await fetch(`${API}/print/inventory.product/${p.id}?template=labels${q}`, { headers: { Authorization: `Bearer ${token}` } })).text();
-  const count = (h: string) => (h.match(/class="l"/g) ?? []).length;
+  const count = (h: string) => (h.match(/class="l( q)?"/g) ?? []).length;
   assert.equal(count(await html('&copies=2')), 6, '3 codes × 2');
   assert.equal(count(await html(`&codes=B3-${run},NOT-MINE&copies=3`)), 3, 'only its own codes, picked one × 3');
   assert.equal(count(await html('')), 3);
@@ -373,6 +373,12 @@ test('one unit, several codes: any of them finds it; codes are unique; SKU is a 
   assert.ok((await call('GET', `search/scan?code=${encodeURIComponent(p.sku)}`)).some((h: J) => h.entityId === p.id));
   const qr = await (await fetch(`${API}/print/inventory.product/${p.id}?template=labels&code=qr`, { headers: { Authorization: `Bearer ${token}` } })).text();
   assert.ok(qr.includes('class="l q"'), 'QR labels');
+  const bars = await (await fetch(`${API}/print/inventory.product/${p.id}?template=labels&code=barcode`, { headers: { Authorization: `Bearer ${token}` } })).text();
+  assert.ok(!bars.includes('class="l q"'), 'barcode labels only when asked for');
+  const emp = (await call('GET', 'r/hrm.employee?pageSize=1')).rows[0];
+  const sticker = await (await fetch(`${API}/print/hrm.employee/${emp.id}?template=idsticker`, { headers: { Authorization: `Bearer ${token}` } })).text();
+  assert.match(sticker, /@page\{size:50mm 80mm/, 'employee POS sticker is 50×80 mm');
+  assert.ok(!/#[0-9a-f]{3,6}\b/i.test(sticker.replace(/#000\b|#fff\b|#e2e8f0/gi, '').replace(/<svg[\s\S]*?<\/svg>/g, '')), 'black and white only');
 });
 
 test('product serial units: one label per unit with its codes; in-stock only; none is a clear error', async () => {
@@ -381,7 +387,7 @@ test('product serial units: one label per unit with its codes; in-stock only; no
   await call('PATCH', `r/serials.item/${(await list('serials.item', { serial: `U2-${run}` }))[0].id}`, { status: 'sold' });
   const html = async (q: string) => (await fetch(`${API}/print/inventory.product/${p.id}?template=units${q}`, { headers: { Authorization: `Bearer ${token}` } }));
   const all = await (await html('')).text();
-  assert.equal((all.match(/class="l"/g) ?? []).length, 2);
+  assert.equal((all.match(/class="l q"/g) ?? []).length, 2);
   assert.ok(all.includes(`IMEI-A-${run}`), "a unit's other codes print on its label");
   assert.equal(((await (await html('&status=in_stock&code=qr')).text()).match(/class="l q"/g) ?? []).length, 1, 'in stock only, as QR');
   const none = await call('POST', 'r/inventory.product', { name: `No units ${run}`, price: '1' });

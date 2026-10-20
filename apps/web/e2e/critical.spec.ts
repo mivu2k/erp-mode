@@ -419,10 +419,10 @@ test('search: scanning a barcode from a photo opens the record (no built-in read
   const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
   const auth = { Authorization: `Bearer ${accessToken}` };
   const job = (await (await request.get('/api/r/repair.job?pageSize=1', { headers: auth })).json()).rows[0];
-  // "Photograph" the job's printed barcode label: render it large and screenshot it as a PNG.
+  // "Photograph" the job's printed QR label: render it large and screenshot it as a PNG.
   const label = (await (await request.get(`/api/print/repair.job/${job.id}?template=label`, { headers: auth })).text()).replace(/<script[\s\S]*?<\/script>/g, '');
   const cam = await browser.newPage();
-  await cam.setContent(label.replace('</style>', 'svg{width:700px!important;height:200px!important}.l{width:auto!important;height:auto!important;overflow:visible!important}body{padding:40px;background:#fff}</style>'));
+  await cam.setContent(label.replace('</style>', 'svg{width:400px!important;height:400px!important}.l{width:auto!important;height:auto!important;overflow:visible!important}body{padding:40px;background:#fff}</style>'));
   const png = await cam.locator('svg').first().screenshot();
   await cam.close();
 

@@ -59,6 +59,7 @@ export default function MyHr() {
           {/* Opens the scanner: point the camera (or take a photo) at a kiosk's rotating QR to check in. */}
           <Button onClick={() => window.dispatchEvent(new Event('erp:scan'))}>Check in at a kiosk</Button>
           {can(meta, 'hrm.employee.print') && <Button variant="outline" onClick={() => openDoc(`print/hrm.employee/${empId}?template=idcard`)}>My ID card</Button>}
+          {can(meta, 'hrm.employee.print') && <Button variant="outline" onClick={() => openDoc(`print/hrm.employee/${empId}?template=idsticker`)}>ID sticker (POS)</Button>}
           <Link href={`/r/hrm.employee/${empId}`}><Button variant="outline">My profile</Button></Link>
         </>} />
       <ErrorBox error={error} />

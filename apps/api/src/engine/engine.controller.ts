@@ -376,7 +376,7 @@ export class PrintController {
     @Query('size') size: PaperSize = 'a4', @Query('template') template?: string, @Query('format') format?: string,
     @Query('codes') codes?: string, @Query('copies') copies?: string, @Query('code') code?: string, @Query('status') status?: string,
   ) {
-    const html = await this.html(user, key, id, size, template, { codes, copies, qr: code === 'qr', status });
+    const html = await this.html(user, key, id, size, template, { codes, copies, qr: code !== 'barcode', status });
     return sendHtmlOrPdf(res, format, html, `${key}-${id}`, isPage(size) ? undefined : Number(size));
   }
 
@@ -407,11 +407,15 @@ export class PrintController {
       return this.print.labels(String(rec.name), String(rec.sku), units.map((u) => ({ code: u.serial, sub: [`S/N ${u.serial}`, ...(u.codes ?? '').split(/\s+/).filter(Boolean)].join(' · ') })), 1, opts.qr);
     }
     if (template === 'label') return (this.print.label(title, String(m.def.subtitle ? cell(rec, m.def.subtitle) : m.def.label), code || id));
-    if (template === 'idcard') {
+    if (template === 'idcard' || template === 'idsticker') {
       const photo = rec.photo ? await this.prisma.attachment.findFirst({ where: { id: String(rec.photo), companyId: user.companyId } }) : null;
       // Photo is embedded (data URL) so the card prints and renders to PDF without reaching storage.
       const photoUrl = photo?.mimeType.startsWith('image/') ? `data:${photo.mimeType};base64,${(await this.storage.read(photo.objectKey)).toString('base64')}` : null;
       const em = (rec.emergency ?? {}) as { name?: string; phone?: string; relation?: string };
+      if (template === 'idsticker') {
+        return this.print.idSticker({ company, name: String(rec.name), code: String(rec.code), photoUrl, qr: String(rec.qrToken ?? rec.code), phone: rec.phone as string | null,
+          designation: rec.designationId ? String(cell(rec, 'designationId')) : undefined, department: rec.departmentId ? String(cell(rec, 'departmentId')) : undefined, branch: rec.branchId ? String(cell(rec, 'branchId')) : undefined });
+      }
       return this.print.idCard({
         company, name: String(rec.name), code: String(rec.code), photoUrl, qr: String(rec.qrToken ?? rec.code),
         designation: rec.designationId ? String(cell(rec, 'designationId')) : undefined, department: rec.departmentId ? String(cell(rec, 'departmentId')) : undefined,

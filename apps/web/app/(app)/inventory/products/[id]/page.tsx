@@ -211,7 +211,7 @@ function SerialUnits({ id, serialized, onError }: { id: string; serialized: bool
   }, [filters]);
   if (rows !== null && !rows.length && !stockOnly && !serialized) return null; // not a serial-tracked item
   const where = (r: Rec) => [r._refs?.warehouseId !== '—' && r._refs?.warehouseId, r.location, r.holder && `with ${r.holder}`, r.status === 'sold' && r._refs?.customerId !== '—' && r._refs?.customerId].filter(Boolean).join(' · ') || '—';
-  const label = (code?: 'qr') => openDoc(`print/${KEY}/${id}?${qs({ template: 'units', status: stockOnly ? 'in_stock' : undefined, code })}`).catch(onError);
+  const label = (code?: 'barcode') => openDoc(`print/${KEY}/${id}?${qs({ template: 'units', status: stockOnly ? 'in_stock' : undefined, code })}`).catch(onError);
   return (
     <Card title={<span>Serial units<span className="ms-2 text-xs font-normal text-muted-foreground">{rows ? `${total}${stockOnly ? ' in stock' : ''}` : ''}</span></span>}
       actions={<div className="flex flex-wrap items-center gap-1.5">
@@ -220,7 +220,7 @@ function SerialUnits({ id, serialized, onError }: { id: string; serialized: bool
             className={cx('rounded-full border px-2.5 py-0.5 text-xs', stockOnly === (l === 'In stock') ? 'border-primary bg-primary/10 text-foreground' : 'border-border text-muted-foreground')}>{l}</button>
         ))}
         {can(meta, 'serials.item.export') && <Button size="sm" variant="ghost" onClick={() => openDoc(`r/serials.item/export?${qs({ format: 'xlsx', filters, columns: 'serial,codes,status,location,holder,customerId,warrantyUntil' })}`).catch(onError)}>Export</Button>}
-        {can(meta, 'inventory.product.print') && <><Button size="sm" variant="ghost" onClick={() => label()}>Labels</Button><Button size="sm" variant="ghost" onClick={() => label('qr')}>QR labels</Button></>}
+        {can(meta, 'inventory.product.print') && <><Button size="sm" variant="ghost" onClick={() => label()}>QR labels</Button><Button size="sm" variant="ghost" onClick={() => label('barcode')}>Barcode labels</Button></>}
       </div>}>
       {rows === null ? <p className="text-sm text-muted-foreground">Loading…</p> : !rows.length ? <p className="text-sm text-muted-foreground">{stockOnly ? 'No units in stock.' : 'No units registered yet — receive them on a purchase order or register them in Serial Tracking.'}</p> : (
         <div className="-mx-5 max-h-96 overflow-auto">
@@ -250,9 +250,9 @@ function LabelsDialog({ open, onClose, id, rec, onError }: { open: boolean; onCl
   const codes = [...new Set([String(rec.barcode ?? '').trim(), ...splitCodes(rec.barcodes)].filter(Boolean))];
   const [pick, setPick] = useState<string[]>(codes);
   const [copies, setCopies] = useState(1);
-  const [style, setStyle] = useState<'barcode' | 'qr'>('barcode');
+  const [style, setStyle] = useState<'barcode' | 'qr'>('qr');
   useEffect(() => { if (open) setPick(codes); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
-  const print = () => openDoc(`print/${KEY}/${id}?${qs({ template: 'labels', codes: codes.length ? pick.join(',') : undefined, copies, code: style === 'qr' ? 'qr' : undefined })}`).then(onClose).catch(onError);
+  const print = () => openDoc(`print/${KEY}/${id}?${qs({ template: 'labels', codes: codes.length ? pick.join(',') : undefined, copies, code: style === 'barcode' ? 'barcode' : undefined })}`).then(onClose).catch(onError);
   return (
     <Dialog open={open} onClose={onClose} title="Print labels" footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={codes.length > 0 && !pick.length} onClick={print}>Print {(codes.length ? pick.length : 1) * copies} label{(codes.length ? pick.length : 1) * copies === 1 ? '' : 's'}</Button></>}>
       <div className="space-y-3 text-sm">
