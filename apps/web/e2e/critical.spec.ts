@@ -582,3 +582,14 @@ test('pending quotation: approve on the page, then the customer decision is offe
   await expect(page.getByRole('button', { name: 'Customer decision' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Submit for approval' })).toHaveCount(0);
 });
+
+test('saved intake: Print button with A4, A5 and POS slip', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const cust = await (await request.post('/api/r/sales.customer', { headers: auth, data: { name: `Reprint ${run}` } })).json();
+  const { intake } = await (await request.post('/api/repair/intakes', { headers: auth, data: { customerId: cust.id, items: [{ productType: 'Handheld radio', fault: 'No power' }] } })).json();
+  await page.goto(`/r/repair.intake/${intake.id}`);
+  await page.locator('summary', { hasText: 'Print' }).click();
+  await expect(page.getByRole('button', { name: 'POS receipt (80mm)' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Print (A5)' })).toBeVisible();
+});

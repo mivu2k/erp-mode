@@ -167,8 +167,8 @@ export default function RecordPage() {
   };
   // Workflow actions stay visible; the rest (prints, ledgers…) collapse into "More".
   const primary = isJob ? [] : actions.filter((a) => !a.opens).slice(0, 3); // a job's next step lives in its flow panel
-  const more = [
-    ...actions.filter((a) => !primary.includes(a)).map((a) => ({ label: a.label, onClick: () => doAction(a) })),
+  // Printing is its own button (not buried in More): A4 / A5 / POS slip and PDFs.
+  const prints = [
     ...(!isNew && r.printable && r.can.print ? [
       { label: 'Print (A4)', onClick: () => openDoc(`print/${key}/${id}`).catch(setError) },
       { label: 'Print (A5)', onClick: () => openDoc(`print/${key}/${id}?size=a5`).catch(setError) },
@@ -176,6 +176,9 @@ export default function RecordPage() {
       { label: 'Download PDF (A4)', onClick: () => openDoc(`print/${key}/${id}?format=pdf`).catch(setError) },
       { label: 'Download PDF (A5)', onClick: () => openDoc(`print/${key}/${id}?size=a5&format=pdf`).catch(setError) },
     ] : []),
+  ];
+  const more = [
+    ...actions.filter((a) => !primary.includes(a)).map((a) => ({ label: a.label, onClick: () => doAction(a) })),
     ...(!isNew && r.can.delete && ops.includes('delete') && (!locked || force) ? [{ label: t('Delete'), onClick: () => confirm('Delete this record?') && run(async () => { await api(`r/${key}/${id}`, 'DELETE'); router.replace(`/r/${key}`); }) }] : []),
   ];
   const mod = meta.modules.find((m) => m.key === (r.group ?? key.split('.')[0]));
@@ -196,6 +199,7 @@ export default function RecordPage() {
             {canSubmit && <Button disabled={busy} onClick={() => run(async () => { if (dirty) await save(); await api(`r/${key}/${id}/submit`, 'POST'); })}>{t('Submit for approval')}</Button>}
             {isJob && editable && !(force && locked) && <Button variant="ghost" onClick={() => { setEditJob((x) => !x); setValues(rec); }}>{editJob ? 'Done editing' : 'Edit details'}</Button>}
             {primary.map((a) => <Button key={a.name} variant="outline" disabled={busy} onClick={() => doAction(a)}>{a.label}</Button>)}
+            {prints.length > 0 && <Menu label="Print" items={prints} />}
             {more.length > 0 && <Menu label="More" items={more} />}
           </>
         }
