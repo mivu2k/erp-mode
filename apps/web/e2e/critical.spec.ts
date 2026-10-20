@@ -619,3 +619,21 @@ test('saved reports: New opens the report builder, not a JSON form', async ({ pa
   await expect(page).toHaveURL(/\/reports\?tab=builder/);
   await expect(page.getByRole('heading', { name: 'Report builder' })).toBeVisible();
 });
+
+test('report builder in plain steps: show, split by, condition, date range, save', async ({ page }) => {
+  await page.goto('/reports?tab=builder');
+  await page.getByLabel('1. Show me').selectOption({ label: 'Jobs' });
+  await page.getByLabel('2. Split by').selectOption({ label: 'Technician' });
+  await page.getByRole('button', { name: '+ Add condition' }).click();
+  await page.getByLabel('Field').selectOption({ label: 'Status' });
+  await page.getByLabel('Status is').selectOption('received');
+  await page.getByLabel('From').fill('2026-01-01');
+  await page.getByRole('button', { name: 'Run' }).click();
+  await expect(page.getByText(/\d+ rows/)).toBeVisible();
+  await expect(page.getByText('Filters (JSON')).toHaveCount(0);
+  page.once('dialog', (d) => d.accept(`Received by tech ${run}`));
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/\/reports\/saved\//);
+  await expect(page.getByRole('heading', { name: `Received by tech ${run}` })).toBeVisible();
+  await page.screenshot({ path: 'test-results/report-builder.png', fullPage: true });
+});

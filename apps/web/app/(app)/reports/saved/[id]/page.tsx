@@ -62,7 +62,6 @@ export default function SavedReport() {
             <div className="flex flex-wrap items-end gap-3 text-sm">
               <div><Label htmlFor="f">From</Label><Input id="f" type="date" value={p.from} onChange={(e) => setP({ ...p, from: e.target.value })} /></div>
               <div><Label htmlFor="t">To</Label><Input id="t" type="date" value={p.to} onChange={(e) => setP({ ...p, to: e.target.value })} /></div>
-              <div><Label htmlFor="m">Month</Label><Input id="m" type="month" value={p.period} onChange={(e) => setP({ ...p, period: e.target.value })} /></div>
               <Button variant="outline" onClick={run}>Apply</Button>
             </div>
           </Card>
@@ -72,7 +71,7 @@ export default function SavedReport() {
               <div className="-mx-5 overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead className="text-xs uppercase tracking-wide text-muted-foreground"><tr>{out.columns.map((c) => <th key={c} className="px-3 py-2 text-start font-medium first:ps-5">{humanize(c)}</th>)}</tr></thead>
-                  <tbody>{out.rows.map((r, i) => <tr key={i} className="border-t border-border/60">{out.columns.map((c) => <td key={c} className="px-3 py-2 first:ps-5">{cellOf(r, c)}</td>)}</tr>)}</tbody>
+                  <tbody>{out.rows.map((r, i) => <tr key={i} className="border-t border-border/60">{out.columns.map((c) => <td key={c} className="px-3 py-2 first:ps-5">{cellOf(r, c) || '—'}</td>)}</tr>)}</tbody>
                 </table>
               </div>
             )}
