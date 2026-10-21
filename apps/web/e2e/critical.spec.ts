@@ -647,3 +647,15 @@ test('intake units: print buttons on each row', async ({ page, request }) => {
   await expect(page.getByRole('button', { name: 'Unit tag' })).toHaveCount(2);
   await expect(page.getByRole('button', { name: 'Slip 80mm' })).toHaveCount(2);
 });
+
+test('master data as lists: pick a list, add with Enter, switch off', async ({ page }) => {
+  await page.goto('/r/core.masterdata');
+  await expect(page).toHaveURL(/\/admin\/lists/);
+  await page.getByRole('button', { name: /^Accessory/ }).click();
+  await page.getByLabel('Add to Accessory').fill(`Belt clip ${run}`);
+  await page.keyboard.press('Enter');
+  await expect(page.getByLabel(`Name of Belt clip ${run}`)).toBeVisible();
+  await page.getByLabel(`Name of Belt clip ${run}`).locator('xpath=..').getByLabel('In use').uncheck();
+  await expect(page.getByLabel(`Name of Belt clip ${run}`)).toHaveClass(/line-through/);
+  await page.screenshot({ path: 'test-results/lists.png', fullPage: true });
+});
