@@ -637,3 +637,13 @@ test('report builder in plain steps: show, split by, condition, date range, save
   await expect(page.getByRole('heading', { name: `Received by tech ${run}` })).toBeVisible();
   await page.screenshot({ path: 'test-results/report-builder.png', fullPage: true });
 });
+
+test('intake units: print buttons on each row', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const cust = await (await request.post('/api/r/sales.customer', { headers: auth, data: { name: `Rows ${run}` } })).json();
+  const { intake } = await (await request.post('/api/repair/intakes', { headers: auth, data: { customerId: cust.id, items: [{ productType: 'Handheld radio', fault: 'A' }, { productType: 'Handheld radio', fault: 'B' }] } })).json();
+  await page.goto(`/r/repair.intake/${intake.id}`);
+  await expect(page.getByRole('button', { name: 'Unit tag' })).toHaveCount(2);
+  await expect(page.getByRole('button', { name: 'Slip 80mm' })).toHaveCount(2);
+});

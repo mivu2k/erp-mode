@@ -528,13 +528,15 @@ function Related({ spec, id }: { spec: { resource: string; field: string; label:
   const [rows, setRows] = useState<Rec[] | null>(null);
   useEffect(() => { api<{ rows: Rec[] }>(`r/${spec.resource}?${qs({ filters: { [spec.field]: id }, pageSize: 100, sort: 'createdAt:asc' })}`).then((d) => setRows(d.rows)).catch(() => setRows([])); }, [spec, id]);
   if (!target || !rows?.length) return null;
+  // Repair units print right from the row (job card, 80mm slip, unit tag), same as just after intake.
+  const jobs = spec.resource === 'repair.job' && target.can.print;
   const fields = new Map<string, FieldMeta>([...target.fields.map((f): [string, FieldMeta] => [f.name, f]), ['createdAt', { name: 'createdAt', type: 'datetime' }]]);
   return (
     <Card title={`${spec.label} (${rows.length})`}>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>{spec.columns.map((c) => <th key={c} className="px-2 py-1.5 text-start font-medium">{humanize(c)}</th>)}</tr>
+            <tr>{spec.columns.map((c) => <th key={c} className="px-2 py-1.5 text-start font-medium">{humanize(c)}</th>)}{jobs && <th className="px-2 py-1.5 text-end font-medium">Print</th>}</tr>
           </thead>
           <tbody>
             {rows.map((row) => (
@@ -544,6 +546,15 @@ function Related({ spec, id }: { spec: { resource: string; field: string; label:
                     {i === 0 ? <Link className="text-primary hover:underline" href={`/r/${spec.resource}/${row.id}`}>{formatCell(row as never, fields.get(c), c)}</Link> : formatCell(row as never, fields.get(c), c)}
                   </td>
                 ))}
+                {jobs && (
+                  <td className="whitespace-nowrap px-2 py-1.5 text-end">
+                    <span className="inline-flex gap-1">
+                      <Button size="sm" variant="outline" onClick={() => openDoc(`print/repair.job/${row.id}`)}>Job card</Button>
+                      <Button size="sm" variant="outline" onClick={() => openDoc(`print/repair.job/${row.id}?size=80`)}>Slip 80mm</Button>
+                      <Button size="sm" variant="outline" onClick={() => openDoc(`print/repair.job/${row.id}?template=label`)}>Unit tag</Button>
+                    </span>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
