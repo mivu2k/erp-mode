@@ -178,7 +178,7 @@ export const RESOURCES: ResourceDef[] = [
   { key: 'hrm.punch', model: 'AttendancePunch', label: 'Punches', title: 'method', list: ['employeeId', 'at', 'method', 'stationId'], refs: { employeeId: 'hrm.employee', stationId: 'hrm.station' }, ops: [], owner: 'employeeId' },
   {
     key: 'hrm.attendance', model: 'AttendanceDay', label: 'Attendance', title: 'status', calendar: 'date', list: ['date', 'employeeId', 'status', 'inAt', 'outAt', 'lateMin', 'overtimeMin'],
-    refs: { employeeId: 'hrm.employee' }, ops: [], owner: 'employeeId', statuses: ['present', 'late', 'half_day', 'absent', 'leave', 'holiday', 'weekend'],
+    refs: { employeeId: 'hrm.employee' }, ops: ['delete'], owner: 'employeeId', statuses: ['present', 'late', 'half_day', 'absent', 'leave', 'holiday', 'weekend'],
   },
   { key: 'hrm.correction', model: 'AttendanceCorrection', label: 'Attendance Corrections', title: 'reason', list: ['employeeId', 'date', 'inAt', 'outAt', 'status'], refs: { employeeId: 'hrm.employee' }, workflow: true, owner: 'employeeId', readonly: WF, editableWhen: EDIT_DRAFT },
   { key: 'hrm.leavetype', model: 'LeaveType', label: 'Leave Types', title: 'name', list: ['name', 'daysPerYear', 'paid', 'carryForward'] },

@@ -704,3 +704,11 @@ test('print layout editor: pick document, insert field', async ({ page }) => {
   await page.getByRole('button', { name: 'Fault' }).click();
   await expect(page.getByLabel('Layout (HTML)')).toHaveValue(/\{\{fault\}\}/);
 });
+
+test('attendance day: admin can delete it', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const day = (await (await request.get('/api/r/hrm.attendance?pageSize=1', { headers: { Authorization: `Bearer ${accessToken}` } })).json()).rows[0];
+  await page.goto(`/r/hrm.attendance/${day.id}`);
+  await page.locator('summary', { hasText: 'More' }).click();
+  await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
+});

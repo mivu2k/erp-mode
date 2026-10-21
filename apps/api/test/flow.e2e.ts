@@ -454,6 +454,12 @@ test('Attendance: pair kiosk → NFC punch (idempotent) → process day', async 
   assert.equal(day.status, 'late');
   assert.equal(day.lateMin, 25);
   assert.equal((await list('hrm.punch', { employeeId: ctx.emp.id })).length, 3, '2 at the kiosk (the replay is not counted twice) + 1 app check-in');
+  // Admin deletes the day: its punches go too, so reprocessing makes it absent instead of restoring the wrong record.
+  await call('DELETE', `r/hrm.attendance/${day.id}`);
+  assert.equal((await list('hrm.attendance', { employeeId: ctx.emp.id, date: day0 })).length, 0, 'day deleted');
+  assert.equal((await list('hrm.punch', { employeeId: ctx.emp.id })).length, 1, "that day's 2 kiosk punches removed, the app check-in (another day) kept");
+  await call('POST', 'hrm/attendance/process', { date: day0 });
+  assert.equal((await list('hrm.attendance', { employeeId: ctx.emp.id, date: day0 }))[0].status, 'absent', 'recalculated from what is left');
 });
 
 test('Payroll: generate → approve → post → pay; salary advance recovered', async () => {

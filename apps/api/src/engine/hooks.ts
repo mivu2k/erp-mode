@@ -20,6 +20,8 @@ export interface ResourceHooks {
   beforeSubmit?(ctx: HookCtx, rec: Row): Promise<void> | void;
   onApproved?(ctx: HookCtx, rec: Row): Promise<void> | void;
   onRejected?(ctx: HookCtx, rec: Row): Promise<void> | void;
+  /** Inside the delete transaction, after the row is gone (soft or hard). */
+  afterDelete?(ctx: HookCtx, before: Row): Promise<void> | void;
 }
 
 @Injectable()

@@ -73,6 +73,15 @@ export class HrmController {
       },
     });
     // Employee status follows approved leave and exit events (never typed in).
+    // Deleting an attendance day removes that day's punches too, so reprocessing can't bring the wrong record back
+    // (the day is recalculated from what's left: absent, or from punches/corrections added later).
+    hooks.on('hrm.attendance', {
+      afterDelete: async ({ tx, user }, day) => {
+        const company = await tx.company.findUniqueOrThrow({ where: { id: user.companyId } });
+        const start = new Date(+(day.date as Date) - tzOffsetMs(company.timezone, day.date as Date));
+        await tx.attendancePunch.deleteMany({ where: { companyId: user.companyId, employeeId: String(day.employeeId), at: { gte: start, lt: new Date(+start + dayMs) } } });
+      },
+    });
     hooks.on('hrm.leave', { onApproved: ({ tx, user }, rec) => this.syncEmployeeStatus(tx, user.companyId, [String(rec.employeeId)]).then(() => undefined) });
     hooks.on('hrm.event', { onApproved: ({ tx, user }, rec) => this.syncEmployeeStatus(tx, user.companyId, [String(rec.employeeId)]).then(() => undefined) });
     hooks.on('hrm.correction', {
@@ -281,7 +290,7 @@ export class HrmController {
       const mins = punches.filter((p) => p.employeeId === e.id).map((p) => rel(p.at)).filter((m) => m >= start - 240 && m < start + 20 * 60);
       const r = classifyDay(rule, weekday, mins, { holiday, leave: onLeave.has(e.id) });
       const toDate = (m: number | null) => (m === null ? null : new Date(+d + m * 60_000 - tzOffsetMs(company.timezone, d)));
-      const data = { status: r.status, inAt: toDate(r.inMin), outAt: toDate(r.outMin), workedMin: r.workedMin, lateMin: r.lateMin, earlyMin: r.earlyMin, overtimeMin: r.overtimeMin, branchId: e.branchId, departmentId: e.departmentId };
+      const data = { deletedAt: null, status: r.status, inAt: toDate(r.inMin), outAt: toDate(r.outMin), workedMin: r.workedMin, lateMin: r.lateMin, earlyMin: r.earlyMin, overtimeMin: r.overtimeMin, branchId: e.branchId, departmentId: e.departmentId };
       await this.prisma.attendanceDay.upsert({ where: { employeeId_date: { employeeId: e.id, date: d } }, update: data, create: { companyId, employeeId: e.id, date: d, ...data } });
     }
     return employees.length;

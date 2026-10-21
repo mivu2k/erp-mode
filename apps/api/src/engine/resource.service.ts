@@ -234,6 +234,7 @@ export class ResourceService {
       const overridden = this.ensureEditable(m.def, before, force) || (m.def.ops !== undefined && !m.def.ops.includes('delete'));
       if (m.columns.has('deletedAt')) await delegate(tx, m.delegate).update({ where: { id }, data: { deletedAt: new Date() } });
       else await (delegate(tx, m.delegate) as unknown as { delete(a: object): Promise<unknown> }).delete({ where: { id } });
+      await this.hooks.run(key, 'afterDelete', { tx, user, def: m.def }, before);
       await this.audit.log({ companyId: user.companyId, userId: user.id, action: overridden ? 'override_delete' : 'delete', entityType: key, entityId: id, before }, tx);
       await this.search.remove(tx, key, id);
     });
