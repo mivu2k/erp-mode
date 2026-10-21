@@ -314,7 +314,7 @@ export const RESOURCES: ResourceDef[] = [
     actions: [{ name: 'post', label: 'Post to stock', path: 'inventory/adjustments/:id/post', when: ['approved'], permission: 'inventory.adjustment.approve' }],
   },
   {
-    key: 'serials.item', model: 'SerialItem', label: 'Serial Register', title: 'serial', subtitle: 'status',
+    key: 'serials.item', model: 'SerialItem', label: 'Serial Register', title: 'serial', subtitle: 'status', createPath: '/serials?register=1',
     list: ['serial', 'itemName', 'productId', 'status', 'location', 'holder', 'customerId', 'warrantyUntil'], search: ['serial', 'codes', 'itemName', 'brand', 'model', 'location', 'holder', 'notes'], barcode: 'serial',
     refs: { productId: 'inventory.product', warehouseId: 'inventory.warehouse', vendorId: 'purchase.vendor', customerId: 'sales.customer', employeeId: 'hrm.employee' },
     // warehouse/vendor/receipt/sale are maintained by stock postings; everything else can be entered by hand.

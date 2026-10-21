@@ -57,13 +57,15 @@ function Serials() {
   const canAct = can(meta, 'serials.item.update');
   const [summary, setSummary] = useState<Summary | null>(null);
   const [view, setView] = useState('all');
-  const linked = useSearchParams().get('q') ?? ''; // e.g. "Track" from a product's serial units
+  const search = useSearchParams();
+  const linked = search.get('q') ?? ''; // e.g. "Track" from a product's serial units
   const [q, setQ] = useState(linked);
   const [rows, setRows] = useState<Rec[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [sel, setSel] = useState<string | null>(null);
-  const [dialog, setDialog] = useState<'register' | 'bulk' | null>(null);
+  // ?register=1 ("New" on the serial register) opens the register dialog straight away.
+  const [dialog, setDialog] = useState<'register' | 'bulk' | null>(search.get('register') && canRegister ? 'register' : null);
   const [error, setError] = useState<unknown>(null);
   const scan = useRef<HTMLInputElement>(null);
   const [tick, setTick] = useState(0); // bump to reload after a change

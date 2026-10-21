@@ -659,3 +659,9 @@ test('master data as lists: pick a list, add with Enter, switch off', async ({ p
   await expect(page.getByLabel(`Name of Belt clip ${run}`)).toHaveClass(/line-through/);
   await page.screenshot({ path: 'test-results/lists.png', fullPage: true });
 });
+
+test('serial register: New opens the register dialog on the tracker', async ({ page }) => {
+  await page.goto('/r/serials.item/new');
+  await expect(page).toHaveURL(/\/serials\?register=1/);
+  await expect(page.getByText('Scan or paste serial numbers', { exact: false }).or(page.getByPlaceholder(/Scan or paste serial numbers/))).toBeVisible();
+});

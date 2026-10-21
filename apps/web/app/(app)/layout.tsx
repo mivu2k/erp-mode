@@ -41,13 +41,12 @@ function menu(meta: Meta) {
   if (can(meta, 'hrm.attendance.manage')) add('hrm', '/hrm/attendance', 'Process attendance');
   if (can(meta, 'catalog.item.print')) add('catalog', '/catalog/builder', 'Brochure & deck builder');
   if (can(meta, 'catalog.item.update')) add('catalog', '/catalog/profile', 'Company profile');
-  if (can(meta, 'serials.item.view')) add('serials', '/serials', 'Tracker');
   if (can(meta, 'payables.due.view')) add('payables', '/payables', 'Timeline');
   if (can(meta, 'utilities.connection.view')) add('utilities', '/utilities', 'Tracker');
   if (can(meta, 'payables.due.create')) { add('payables', '/r/payables.due/new?direction=receivable', 'Add receivable'); add('payables', '/r/payables.due/new?direction=payable', 'Add payable'); }
   if (can(meta, 'finance.report.view')) add('finance', '/finance/reports', 'Financial reports');
   // Products and repair spare parts are one item list, split by kind: each gets its own menu entry.
-  const href = (k: string) => (k === 'finance.account' ? '/finance/accounts' : k === 'core.masterdata' ? '/admin/lists' : k === 'inventory.product' ? '/r/inventory.product?kind=product' : `/r/${k}`);
+  const href = (k: string) => (k === 'finance.account' ? '/finance/accounts' : k === 'core.masterdata' ? '/admin/lists' : k === 'serials.item' ? '/serials' : k === 'inventory.product' ? '/r/inventory.product?kind=product' : `/r/${k}`);
   for (const r of meta.resources) add(r.group ?? r.key.split('.')[0], href(r.key), r.label);
   // Spare parts are inventory: their list and the store's parts desk (issue to / receive from repair jobs) live there.
   if (can(meta, 'inventory.product.view')) add('inventory', '/r/inventory.product?kind=part', 'Spare parts');
