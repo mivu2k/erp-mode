@@ -22,7 +22,7 @@ export default function ListPage() {
     remove: (id: string) => api(`views/${id}`, 'DELETE'),
   }), [key]);
   // Accounts have their own screen (tree + balances); the plain list would be a second, poorer copy.
-  useEffect(() => { if (key === 'finance.account') router.replace('/finance/accounts'); if (key === 'core.masterdata') router.replace('/admin/lists'); if (key === 'serials.item') router.replace('/serials'); }, [key, router]);
+  useEffect(() => { if (key === 'finance.account') router.replace('/finance/accounts'); if (key === 'core.masterdata') router.replace('/admin/lists'); if (key === 'serials.item') router.replace('/serials'); if (key === 'core.setting') router.replace('/admin/settings'); }, [key, router]);
   if (!r) return <EmptyState title="Not available" hint="This screen doesn't exist or you don't have access." />;
   // URL parameters naming a field fix the list to that value, e.g. ?kind=part → spare parts only (menus link this way).
   const fixed = Object.fromEntries([...search.entries()].filter(([k]) => r.fields.some((f) => f.name === k)));

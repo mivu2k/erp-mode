@@ -146,8 +146,8 @@ export const RESOURCES: ResourceDef[] = [
   { key: 'core.masterdata', model: 'MasterData', label: 'Master Data', title: 'name', subtitle: 'type', list: ['type', 'code', 'name', 'isActive', 'sort'], search: ['type', 'code', 'name'] },
   { key: 'core.sequence', model: 'Sequence', label: 'Numbering', title: 'docType', list: ['docType', 'pattern', 'reset', 'current', 'branchId'], readonly: ['period'] },
   { key: 'core.customfield', model: 'CustomField', label: 'Custom Fields', title: 'label', list: ['resource', 'name', 'label', 'type', 'required'] },
-  { key: 'core.template', model: 'Template', label: 'Templates', title: 'key', list: ['kind', 'key', 'subject'] },
-  { key: 'core.workflow', model: 'WorkflowDefinition', label: 'Workflows', title: 'name', list: ['name', 'resource', 'priority', 'isActive'] },
+  { key: 'core.template', model: 'Template', label: 'Print layouts', title: 'key', list: ['key', 'updatedAt'], createPath: '/admin/templates/new' },
+  { key: 'core.workflow', model: 'WorkflowDefinition', label: 'Workflows', title: 'name', list: ['name', 'resource', 'priority', 'isActive'], createPath: '/admin/workflows/new' },
   { key: 'core.setting', model: 'Setting', label: 'Settings', title: 'key', list: ['key', 'value'], search: ['key'] },
   { key: 'core.audit', model: 'AuditLog', label: 'Audit Log', title: 'action', subtitle: 'entityType', list: ['createdAt', 'userId', 'action', 'entityType', 'entityId', 'ip'], refs: { userId: 'core.user' }, ops: [], search: ['action', 'entityType', 'entityId'] },
 

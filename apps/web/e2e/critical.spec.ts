@@ -665,3 +665,42 @@ test('serial register: New opens the register dialog on the tracker', async ({ p
   await expect(page).toHaveURL(/\/serials\?register=1/);
   await expect(page.getByText('Scan or paste serial numbers', { exact: false }).or(page.getByPlaceholder(/Scan or paste serial numbers/))).toBeVisible();
 });
+
+test('settings as a form: account pickers, numbers, no JSON', async ({ page }) => {
+  await page.goto('/admin/settings');
+  await expect(page.getByText('Accounts used by automatic postings')).toBeVisible();
+  await expect(page.locator('textarea.font-mono')).toHaveCount(0);
+  const kiosk = page.locator('section', { hasText: 'Attendance kiosk' });
+  await kiosk.getByLabel('Rotating qr seconds').fill('30');
+  await kiosk.getByRole('button', { name: 'Save' }).click();
+  await expect(kiosk.getByRole('status')).toHaveText('Saved');
+});
+
+test('workflow editor: document, amount rule, role step — no JSON', async ({ page, request }) => {
+  await page.goto('/r/core.workflow');
+  await page.getByRole('link', { name: 'New' }).click();
+  await expect(page).toHaveURL(/\/admin\/workflows\/new/);
+  await page.getByLabel('Name', { exact: true }).fill(`Big POs ${run}`);
+  await page.getByLabel('Document').selectOption({ label: 'Purchase Orders' });
+  await page.getByLabel('Only when amount is at least').fill('500000');
+  await page.getByLabel('Step 1 name').fill('Director');
+  await page.getByLabel('Who approves').selectOption('role');
+  await page.getByRole('button', { name: 'Create' }).click();
+  await expect(page).toHaveURL(/\/admin\/workflows\/(?!new)/);
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const id = page.url().split('/').pop();
+  const wf = await (await request.get(`/api/r/core.workflow/${id}`, { headers: { Authorization: `Bearer ${accessToken}` } })).json();
+  expect(wf.resource).toBe('purchase.order');
+  expect(wf.conditions).toEqual({ minAmount: 500000 });
+  expect(wf.steps[0]).toMatchObject({ name: 'Director', approverType: 'role' });
+  await request.delete(`/api/r/core.workflow/${id}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+});
+
+test('print layout editor: pick document, insert field', async ({ page }) => {
+  await page.goto('/r/core.template');
+  await page.getByRole('link', { name: 'New' }).click();
+  await expect(page).toHaveURL(/\/admin\/templates\/new/);
+  await page.getByLabel('Document').selectOption({ label: 'Jobs' });
+  await page.getByRole('button', { name: 'Fault' }).click();
+  await expect(page.getByLabel('Layout (HTML)')).toHaveValue(/\{\{fault\}\}/);
+});
