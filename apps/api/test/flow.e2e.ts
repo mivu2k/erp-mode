@@ -937,6 +937,9 @@ test('employee self-service: an Employee-role user sees exactly their own record
     assert.deepEqual(mine.rows.map((r: J) => r.id), [emp.id], 'sees own employee record only');
     await call('GET', `r/hrm.employee/${emp.id}`);
     await assert.rejects(call('GET', `r/hrm.employee/${ctx.emp.id}`), /404/);
+    // Dropdown choices (labour services etc.) are readable without a master-data permission; changing them is not.
+    assert.ok((await call('GET', `r/core.masterdata?pageSize=5&filters=${encodeURIComponent(JSON.stringify({ type: 'service_rate' }))}`)).rows.length > 0, 'labour services readable');
+    await assert.rejects(call('POST', 'r/core.masterdata', { type: 'service_rate', name: 'Sneaky' }), /403/);
     assert.ok(Array.isArray(await call('GET', `hrm/leave/balance/${emp.id}`)), 'own leave balance');
     await assert.rejects(call('GET', `hrm/leave/balance/${ctx.emp.id}`), /404/);
     assert.equal((await call('GET', 'r/hrm.payslip?pageSize=50')).rows.filter((r: J) => r.employeeId !== emp.id).length, 0);

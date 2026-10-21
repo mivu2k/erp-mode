@@ -143,7 +143,9 @@ export class AuthGuard implements CanActivate {
       departmentId: user.departmentId,
       employeeId: employee?.id ?? null,
       roleIds: roles.map((r) => r.roleId),
-      permissions: mergeScopes(roles.flatMap((ur) => ur.role.permissions.map((rp) => ({ key: rp.permission.key, scope: rp.scope })))),
+      // Master data is the choice lists every form's dropdowns use (labour services, payment methods, expense types…):
+      // everyone signed in can read them; changing them still needs the role permission.
+      permissions: mergeScopes([{ key: 'core.masterdata.view', scope: 'all' as DataScope }, ...roles.flatMap((ur) => ur.role.permissions.map((rp) => ({ key: rp.permission.key, scope: rp.scope })))]),
       disabledModules: disabled.map((d) => d.key),
     };
   }

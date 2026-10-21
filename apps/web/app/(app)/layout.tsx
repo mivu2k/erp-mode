@@ -47,7 +47,8 @@ function menu(meta: Meta) {
   if (can(meta, 'finance.report.view')) add('finance', '/finance/reports', 'Financial reports');
   // Products and repair spare parts are one item list, split by kind: each gets its own menu entry.
   const href = (k: string) => (k === 'finance.account' ? '/finance/accounts' : k === 'core.masterdata' ? '/admin/lists' : k === 'core.setting' ? '/admin/settings' : k === 'serials.item' ? '/serials' : k === 'inventory.product' ? '/r/inventory.product?kind=product' : `/r/${k}`);
-  for (const r of meta.resources) add(r.group ?? r.key.split('.')[0], href(r.key), r.label);
+  // Everyone can read master data (dropdown choices); only those who edit it get the menu entry.
+  for (const r of meta.resources) if (r.key !== 'core.masterdata' || can(meta, 'core.masterdata.create')) add(r.group ?? r.key.split('.')[0], href(r.key), r.label);
   // Spare parts are inventory: their list and the store's parts desk (issue to / receive from repair jobs) live there.
   if (can(meta, 'inventory.product.view')) add('inventory', '/r/inventory.product?kind=part', 'Spare parts');
   if (can(meta, 'inventory.movement.create')) add('inventory', '/inventory/parts-desk', 'Parts desk');
