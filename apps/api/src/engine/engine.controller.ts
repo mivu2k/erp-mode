@@ -16,7 +16,7 @@ import { SettingsService } from '../platform/settings.service';
 import { sniff } from '../platform/filetype';
 import { StorageService } from '../platform/storage.service';
 import { AccessPayload, assertCan, AuthUser, can, CurrentUser, Public } from '../rbac/rbac';
-import { cell, sendHtmlOrPdf, toCsv, toXlsx } from './export';
+import { cell, ExportOpts, sendHtmlOrPdf, toCsv, toXlsx } from './export';
 import { delegate, Row } from './hooks';
 import { META } from './meta';
 import { ListParams, parse, ResourceService } from './resource.service';
@@ -81,15 +81,26 @@ export class ResourceController {
     const m = this.resources.meta(key);
     const readable = new Set(Object.keys(this.resources.select(user, m)));
     const columns = (q.columns ? q.columns.split(',') : m.def.list).filter((c) => readable.has(c) || (c.startsWith('custom.') && readable.has('custom')));
-    const name = `${m.def.label}-${new Date().toISOString().slice(0, 10)}`;
+    const name = `${m.def.label}-${new Date().toISOString().slice(0, 10)}`.replace(/[^\w.-]+/g, '_');
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: user.companyId } });
+    const field = new Map(m.fields.map((f) => [f.name, f]));
+    const custom = new Map((await this.prisma.customField.findMany({ where: { companyId: user.companyId, resource: key, deletedAt: null } })).map((f) => [`custom.${f.name}`, f.label]));
+    const word = (v: string) => humanize(v);
+    const opts: ExportOpts = {
+      tz: company.timezone,
+      headers: columns.map((c) => custom.get(c) ?? (field.get(c) as { label?: string } | undefined)?.label ?? (c === 'createdAt' ? 'Created' : humanize(c.replace(/Id$/, '')))),
+      // Coded values read as words: statuses, kinds, other option lists, and which document a payment belongs to.
+      values: Object.fromEntries(columns.filter((c) => c === 'status' || c === 'refType' || c === 'sourceType' || c === 'entityType' || (field.get(c) as { options?: string[] } | undefined)?.options || m.def.enums?.[c])
+        .map((c) => [c, c.endsWith('Type') && c !== 'partyType' ? (v: string) => (RESOURCES.find((x) => x.key === v)?.label ?? word(v)) : word])),
+    };
     if (!q.format || q.format === 'csv') {
       // CSV streams page by page, so any size works without holding it in memory.
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${name}.csv"`);
-      res.write(toCsv(columns, []));
+      res.write(toCsv(columns, [], opts));
       for (let page = 1; ; page++) {
         const { rows } = await this.resources.list(user, key, { ...q, page, pageSize: 5_000 });
-        if (rows.length) res.write('\r\n' + toCsv(columns, rows).split('\r\n').slice(1).join('\r\n'));
+        if (rows.length) res.write('\r\n' + toCsv(columns, rows, opts).split('\r\n').slice(1).join('\r\n'));
         if (rows.length < 5_000) break;
       }
       return res.end();
@@ -99,13 +110,12 @@ export class ResourceController {
     if (q.format === 'xlsx') {
       res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       res.setHeader('Content-Disposition', `attachment; filename="${name}.xlsx"`);
-      return res.send(await toXlsx(m.def.label, columns, rows));
+      return res.send(await toXlsx(m.def.label, columns, rows, opts));
     }
     if (q.format === 'html' || q.format === 'pdf') {
-      const company = await this.prisma.company.findUniqueOrThrow({ where: { id: user.companyId } });
       return sendHtmlOrPdf(res, q.format, this.print.render({
-        company, title: m.def.label, fields: [['Printed', new Date().toLocaleString()], ['Rows', rows.length]],
-        lines: { columns: columns.map(humanize), rows: rows.map((r) => columns.map((c) => cell(r, c))) },
+        company, title: m.def.label, fields: [['Printed', cell({ t: new Date() }, 't', opts)], ['Rows', rows.length]],
+        lines: { columns: opts.headers!, rows: rows.map((r) => columns.map((c) => cell(r, c, opts))) },
       }), name);
     }
     return res.status(400).json({ message: 'Unknown format' });
