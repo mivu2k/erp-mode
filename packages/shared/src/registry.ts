@@ -62,6 +62,8 @@ export interface ResourceDef {
   /** Server-managed; never accepted from clients. */
   readonly?: string[];
   hidden?: string[];
+  /** Field labels for this screen, where the column name alone doesn't say what to enter. */
+  labels?: Record<string, string>;
   /** Visible only with `<key>.manage`. */
   restricted?: string[];
   /** Nested line relations editable with the parent: relation field -> child model. */
@@ -392,13 +394,11 @@ export const RESOURCES: ResourceDef[] = [
   {
     key: 'repair.intake', model: 'Intake', label: 'Intakes', title: 'number', list: ['number', 'customerId', 'receivedAt', 'notes'], refs: { customerId: 'sales.customer' }, search: ['number'], ops: [], printable: true,
     actions: [
-      { name: 'quote', label: 'Quotation for all units', path: 'repair/intakes/:id/quotation', permission: 'repair.quotation.create' },
       { name: 'invoice', label: 'Invoice all accepted units', path: 'repair/intakes/:id/invoice', permission: 'repair.invoice.create' },
       { name: 'deliver', label: 'Deliver all ready units', path: 'repair/intakes/:id/deliver', fields: { receivedBy: { type: 'string', label: 'Received by' } }, permission: 'repair.delivery.create' },
     ],
     related: [
       { resource: 'repair.job', field: 'intakeId', label: 'Units', columns: ['number', 'productType', 'model', 'serial', 'status'] },
-      { resource: 'repair.quotation', field: 'intakeId', label: 'Quotations', columns: ['number', 'version', 'total', 'status'] },
       { resource: 'repair.invoice', field: 'intakeId', label: 'Invoices', columns: ['number', 'date', 'total', 'paid', 'status'] },
       { resource: 'repair.delivery', field: 'intakeId', label: 'Delivery orders', columns: ['number', 'receivedBy', 'createdAt'] },
     ],
@@ -554,6 +554,12 @@ export const RESOURCES: ResourceDef[] = [
     key: 'utilities.connection', model: 'UtilityConnection', label: 'Connections', title: 'name', subtitle: 'accountNo',
     list: ['name', 'siteId', 'type', 'provider', 'accountNo', 'meterNo', 'billingDay', 'status'], search: ['name', 'provider', 'accountNo', 'meterNo'],
     refs: { siteId: 'utilities.site', vendorId: 'purchase.vendor', accountId: 'finance.account' },
+    // Provider follows the vendor and branch follows the site, so neither is asked for (still stored and shown).
+    readonly: ['provider', 'branchId'],
+    labels: {
+      vendorId: 'Provider (vendor)', accountNo: 'Consumer / account no.', meterNo: 'Meter no.', unit: 'Unit (kWh, m³…)', tariff: 'Rate per unit',
+      fixedCharge: 'Fixed charge / line rent', billingDay: 'Bill usually arrives on day (1–31)', dueDays: 'Days to pay after the bill', accountId: 'Expense account',
+    },
     enums: { type: ['electricity', 'gas', 'water', 'internet', 'phone', 'sewerage', 'other'], status: ['active', 'suspended', 'disconnected'] }, statuses: ['active', 'suspended', 'disconnected'],
     related: [
       { resource: 'utilities.bill', field: 'connectionId', label: 'Bills', columns: ['number', 'billDate', 'dueDate', 'units', 'total', 'paid', 'status'] },

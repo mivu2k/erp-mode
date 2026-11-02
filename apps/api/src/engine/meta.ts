@@ -11,6 +11,7 @@ const FILES_FIELDS = new Set(['images', 'photos']);
 
 export interface FieldMeta {
   name: string;
+  label?: string;
   type: FieldType;
   required: boolean;
   options?: string[];
@@ -61,6 +62,7 @@ function scalarFields(model: string, def?: ResourceDef, exclude: string[] = []):
       const choices = def?.enums?.[f.name];
       return {
         name: f.name,
+        ...(def?.labels?.[f.name] ? { label: def.labels[f.name] } : {}),
         type: choices && f.type === 'String' ? ('enum' as const) : FILE_FIELDS.has(f.name) && f.type === 'String' ? ('file' as const) : FILES_FIELDS.has(f.name) && f.type === 'Json' ? ('files' as const) : fieldType(f),
         required: f.isRequired && !f.hasDefaultValue && f.name !== def?.number?.field,
         options: f.kind === 'enum' ? enums.get(f.type) : choices,

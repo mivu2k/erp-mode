@@ -726,3 +726,22 @@ test('fleet: the vehicle page is the hub — its logs, and + Add pre-fills the v
   await page.goto('/fleet/dashboard');
   await expect(page.getByRole('link', { name: 'All fuel logs' })).toBeVisible();
 });
+
+test('utilities: one menu entry; the connection form says what to enter', async ({ page }) => {
+  await page.goto('/r/utilities.connection/new');
+  for (const l of ['Provider (vendor)', 'Expense account', 'Rate per unit', 'Bill usually arrives on day (1–31)', 'Days to pay after the bill']) await expect(page.getByText(l).first()).toBeVisible();
+  await expect(page.getByText('Branch', { exact: true })).toHaveCount(0);
+  await page.goto('/utilities');
+  await expect(page.getByRole('link', { name: 'All utility bills' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Meter Readings', exact: true })).toHaveCount(0);
+});
+
+test('intake: no separate quotation — quoting happens per unit in its job', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  const cust = await (await request.post('/api/r/sales.customer', { headers: auth, data: { name: `NoQuote ${run}` } })).json();
+  const { intake } = await (await request.post('/api/repair/intakes', { headers: auth, data: { customerId: cust.id, items: [{ productType: 'Handheld radio', fault: 'No audio' }] } })).json();
+  await page.goto(`/r/repair.intake/${intake.id}`);
+  await expect(page.getByText('Units (1)')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Quotation for all units' })).toHaveCount(0);
+});

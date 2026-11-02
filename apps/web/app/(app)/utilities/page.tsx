@@ -45,6 +45,10 @@ export default function UtilitiesTracker() {
           {can(meta, 'utilities.connection.create') && <Link href="/r/utilities.connection/new"><Button>+ Connection</Button></Link>}
         </>} />
       <ErrorBox error={error} />
+      {/* The tracker is the utilities menu: each connection's page holds its readings and bills; the full lists are here. */}
+      <nav aria-label="Utility lists" className="mb-4 flex flex-wrap gap-2 text-sm">
+        {meta.resources.filter((r) => ['utilities.site', 'utilities.connection', 'utilities.bill', 'utilities.reading'].includes(r.key)).map((r) => <Link key={r.key} href={`/r/${r.key}`} className="rounded-full border border-border px-3 py-1 hover:bg-muted">All {r.label.toLowerCase()}</Link>)}
+      </nav>
       {t && (
         <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <KpiCard label="Connections" value={t.connections} />
