@@ -433,7 +433,7 @@ export const RESOURCES: ResourceDef[] = [
         },
       },
       { name: 'invoice', label: 'Create invoice', path: 'repair/jobs/:id/invoice', when: ['ready', 'delivered', 'returned_unrepaired', 'not_repairable', 'declined'], permission: 'repair.invoice.create' },
-      { name: 'deliver', label: 'Deliver', path: 'repair/jobs/:id/deliver', when: ['ready', 'returned_unrepaired', 'not_repairable', 'declined'], fields: { receivedBy: { type: 'string' } } },
+      { name: 'deliver', label: 'Deliver', path: 'repair/jobs/:id/deliver', when: ['ready', 'returned_unrepaired', 'not_repairable', 'declined'], fields: { receivedBy: { type: 'string' } }, permission: 'repair.delivery.create' },
       { name: 'comeback', label: 'Open comeback job', path: 'repair/jobs/:id/comeback', when: ['delivered', 'closed'], fields: { fault: { type: 'text', required: true } }, permission: 'repair.job.create' },
       { name: 'tag', label: 'Print job tag', path: 'print/repair.job/:id?template=label', opens: true, permission: 'repair.job.print' },
       { name: 'password', label: 'Reveal device PIN / password', path: 'repair/jobs/:id/password', permission: 'repair.job.manage' },

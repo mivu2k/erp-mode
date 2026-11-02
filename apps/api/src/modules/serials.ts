@@ -5,6 +5,7 @@ import { sendReport } from '../engine/export';
 import { HooksService } from '../engine/hooks';
 import { parse, ResourceService } from '../engine/resource.service';
 import { Tx } from '../platform/audit.service';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../platform/prisma.service';
 import { SettingsService } from '../platform/settings.service';
 import { assertCan, AuthUser, can, CurrentUser, Permissions } from '../rbac/rbac';
@@ -273,7 +274,9 @@ export class SerialsController {
     const n = Number(days);
     if (!Number.isInteger(n) || n < 1 || n > 365) throw new BadRequestException('days must be 1–365');
     const until = new Date(Date.now() + n * DAY);
-    const rows = await this.prisma.serialItem.findMany({ where: { companyId: user.companyId, warrantyUntil: { gte: new Date(Date.now() - DAY), lte: until } }, orderBy: { warrantyUntil: 'asc' }, take: 500 });
+    // Same row scope as the serial list (branch / own), not every unit in the company.
+    const scoped = await this.resources.where(user, this.resources.meta('serials.item'), {});
+    const rows = await this.prisma.serialItem.findMany({ where: { ...(scoped as Prisma.SerialItemWhereInput), warrantyUntil: { gte: new Date(Date.now() - DAY), lte: until } }, orderBy: { warrantyUntil: 'asc' }, take: 500 });
     const out = rows.map((r) => ({ ...r })) as unknown as Record<string, unknown>[];
     await this.resources.attachRefs(this.prisma, user, this.resources.meta('serials.item'), out);
     if (!format) return out;

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Headers, HttpCode, Ip, NotFoundException, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Headers, Ip, NotFoundException, Param, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
 import { classifyDay, computePayslip, distanceM, fromMinor, passwordSchema, ShiftRule, toMinor } from '@erp/shared';
 import { Prisma } from '@prisma/client';
 import type { Response } from 'express';
@@ -19,7 +19,6 @@ import { dateOnly, localParts } from '../platform/time';
 import { assertCan, AuthUser, CurrentUser, Permissions, Public } from '../rbac/rbac';
 
 const DEFAULT_SHIFT: ShiftRule = { start: '09:00', end: '17:00', graceMin: 10, halfDayMin: 240, absentMin: 120, otAfterMin: 30, weekend: [0] };
-const iso = (d: Date) => d.toISOString().slice(0, 10);
 const dayMs = 86_400_000;
 
 /** Rotating kiosk QR: HMAC of the current time window, so screenshots expire. */

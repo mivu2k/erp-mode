@@ -658,6 +658,7 @@ export class RepairController {
   }
 
   @Post('repair/jobs/:id/deliver')
+  @Permissions('repair.delivery.create') // handing a unit to the customer is a delivery, same right as the intake's "Deliver all"
   deliver(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: { receivedBy?: string; signature?: string; checklist?: unknown }) {
     return this.prisma.$transaction(async (tx) => {
       const job = await this.job(tx, user, id);

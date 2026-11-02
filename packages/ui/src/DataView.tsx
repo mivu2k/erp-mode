@@ -111,7 +111,6 @@ export function DataView(p: DataViewProps) {
   };
 
   const rows = data?.rows ?? [];
-  const pages = Math.max(1, Math.ceil((data?.total ?? 0) / params.pageSize));
   const chosen = rows.filter((r) => selected.has(r.id));
   const filterable = p.fields.filter((f) => !['json', 'text'].includes(f.type));
   const activeFilters = Object.keys(params.filters).length;

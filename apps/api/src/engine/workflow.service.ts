@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { AuditService, Tx } from '../platform/audit.service';
+import type { Tx } from '../platform/audit.service';
 import { NotifyService } from '../platform/notify.service';
 import { PrismaService } from '../platform/prisma.service';
 import { assertCan, AuthUser, can } from '../rbac/rbac';
@@ -47,7 +47,6 @@ export class WorkflowService {
     private resources: ResourceService,
     private hooks: HooksService,
     private notify: NotifyService,
-    private audit: AuditService,
   ) {}
 
   async submit(user: AuthUser, key: string, id: string) {

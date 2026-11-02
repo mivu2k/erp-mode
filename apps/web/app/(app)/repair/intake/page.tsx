@@ -1,7 +1,7 @@
 'use client';
 import { Button, Card, cx, ErrorBox, FieldMeta, FormGrid, Input, Label, PageHeader, Switch, Textarea } from '@erp/ui';
 import Link from 'next/link';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { api, openDoc, qs } from '@/lib/api';
 import { prepareImage, uploadFile } from '@/lib/files';
 import { intakeProblems, type Item } from '@/lib/intake';

@@ -3,7 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtService } from '@nestjs/jwt';
 import { from, interval, Observable } from 'rxjs';
 import { filter, map, startWith, switchMap } from 'rxjs/operators';
-import { MODULES, moduleOf, RESOURCE_MAP, RESOURCES } from '@erp/shared';
+import { MODULES, RESOURCE_MAP, RESOURCES } from '@erp/shared';
 import { unitByCode } from '../modules/serials';
 import { Prisma } from '@prisma/client';
 import type { Response } from 'express';
