@@ -281,10 +281,10 @@ export const RESOURCES: ResourceDef[] = [
     autofill: { customerId: { partyName: 'name' }, vendorId: { partyName: 'name' }, employeeId: { partyName: 'name' } },
     key: 'payables.due', model: 'Due', label: 'All Dues', title: 'number', subtitle: 'description',
     list: ['number', 'direction', 'partyName', 'description', 'dueDate', 'amount', 'paid', 'status'], search: ['number', 'partyName', 'description'],
-    number: { field: 'number', docType: 'DUE', pattern: 'DUE-{YYYY}-{SEQ:5}' }, readonly: ['paid', 'status', 'journalId', 'partyType'],
+    number: { field: 'number', docType: 'DUE', pattern: 'DUE-{YYYY}-{SEQ:5}' }, readonly: ['paid', 'status', 'partyType'], hidden: ['accountId', 'journalId'], // its own register: not posted to the ledger
     enums: { direction: ['receivable', 'payable'], partyType: ['customer', 'vendor', 'employee', 'other'] },
     statuses: ['open', 'partially_paid', 'settled'], calendar: 'dueDate', ops: ['create'], printable: true,
-    actions: [{ name: 'pay', label: 'Record payment', path: 'finance/dues/:id/pay', when: ['open', 'partially_paid'], fields: { amount: { type: 'money', required: true, from: 'amount-paid' }, accountId: { type: 'ref', ref: 'finance.account', required: true, filters: { $or: [{ isCash: true }, { isBank: true }] } }, methodId: { type: 'ref', ref: 'core.masterdata' } }, permission: 'finance.payment.create' }],
+    actions: [{ name: 'pay', label: 'Record payment', path: 'finance/dues/:id/pay', when: ['open', 'partially_paid'], fields: { amount: { type: 'money', required: true, from: 'amount-paid' }, note: { type: 'string', label: 'Note (cheque no., how it was paid…)' } }, permission: 'payables.due.update' }],
   },
   {
     key: 'finance.voucher', model: 'PaymentVoucher', label: 'Payment Vouchers', title: 'number', subtitle: 'purpose',

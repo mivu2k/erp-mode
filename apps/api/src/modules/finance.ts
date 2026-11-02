@@ -19,7 +19,6 @@ const repayBody = z.object({
   mode: z.enum(['next_installment', 'custom_amount', 'full_settlement']).optional(),
   amount: z.coerce.number().positive().nullish(), accountId: z.string(), methodId: z.string().nullish(), idempotencyKey: z.string().max(100).optional(),
 });
-const moneyBody = z.object({ amount: z.coerce.number().positive(), accountId: z.string(), methodId: z.string().nullish(), idempotencyKey: z.string().max(100).optional() });
 const voucherBody = z.object({ accountId: z.string(), methodId: z.string().nullish(), notes: z.string().max(2000).nullish() });
 const claimPayBody = voucherBody.extend({ amount: z.coerce.number().positive().nullish() });
 const adjustBody = z.object({ lines: z.array(z.object({ lineId: z.string(), approved: z.coerce.number().min(0) })).min(1), note: z.string().max(2000).nullish() });
@@ -98,12 +97,9 @@ export class FinanceController {
         data.partyType = data.customerId ? 'customer' : data.vendorId ? 'vendor' : data.employeeId ? 'employee' : 'other';
         if (party) data.partyName = party.name;
         if (!data.partyName) throw new BadRequestException('Pick a customer, vendor or employee, or type a party name');
-        const acc = await tx.account.findFirst({ where: { id: String(data.accountId), companyId: user.companyId, isGroup: false } });
-        if (!acc) throw new BadRequestException('Pick a posting (non-group) account');
       },
-      // Posts the due; with repeatMonths > 1 also creates the following monthly dues (rent, EMIs…).
+      // P & R is its own register (nothing goes to the ledger). repeatMonths > 1 also creates the following monthly dues (rent, EMIs…).
       afterCreate: async ({ tx, user, body }, rec) => {
-        await this.postDue(tx, user, rec);
         const n = Math.min(Math.max(Number(body?.repeatMonths ?? 1), 1), 60);
         const first = rec.dueDate as Date;
         for (let i = 1; i < n; i++) {
@@ -112,7 +108,7 @@ export class FinanceController {
           const copy = await tx.due.create({
             data: { ...(rest as Prisma.DueUncheckedCreateInput), dueDate, paid: 0, status: 'open', number: await this.numbering.next(tx, user.companyId, rec.branchId as string | null, 'DUE', 'DUE-{YYYY}-{SEQ:5}', dueDate) },
           });
-          await this.postDue(tx, user, copy as unknown as Row);
+          void copy;
         }
       },
     });
@@ -366,52 +362,24 @@ export class FinanceController {
     await this.notify.send(user.companyId, [await this.notify.employeeUser(emp, tx)], { title: `Payment released: ${v.number}`, link: `/r/finance.voucher/${v.id}` }, tx);
   }
 
-  /** Receivable: Dr Receivable / Cr income account. Payable: Dr expense account / Cr Payable. */
-  async postDue(tx: Tx, user: AuthUser, rec: Row) {
-    const acc = await this.ledger.accounts(user.companyId);
-    const amount = Number(rec.amount);
-    const party = this.dueParty(rec);
-    const lines = rec.direction === 'receivable'
-      ? [{ accountId: acc.receivable, debit: amount, ...party }, { accountId: String(rec.accountId), credit: amount }]
-      : [{ accountId: String(rec.accountId), debit: amount }, { accountId: acc.payable, credit: amount, ...party }];
-    const je = await this.ledger.post(tx, { companyId: user.companyId, branchId: rec.branchId as string | null, date: rec.dueDate as Date, memo: `${rec.direction === 'receivable' ? 'Receivable' : 'Payable'} ${rec.number}: ${rec.description ?? rec.partyName}`, sourceType: 'payables.due', sourceId: String(rec.id), userId: user.id, lines });
-    await tx.due.update({ where: { id: String(rec.id) }, data: { journalId: je.id } });
-  }
-
-  private dueParty(rec: Row): { partyType?: string; partyId?: string; employeeId?: string } {
-    const partyId = (rec.customerId ?? rec.vendorId ?? rec.employeeId) as string | null;
-    return partyId ? { partyType: String(rec.partyType), partyId, ...(rec.employeeId ? { employeeId: String(rec.employeeId) } : {}) } : {};
-  }
-
+  /** Records money received / paid against a due — P & R's own register, not posted to the ledger. */
   @Post('dues/:id/pay')
-  @Permissions('finance.payment.create')
+  @Permissions('payables.due.update')
   payDue(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
-    const b = parse(moneyBody, body);
+    const b = parse(z.object({ amount: z.coerce.number().positive(), note: z.string().max(500).optional() }), body);
     return this.prisma.$transaction(async (tx) => {
       const d = await this.resources.load(tx, user, 'payables.due', id, 'view');
       if (!['open', 'partially_paid'].includes(String(d.status))) throw new BadRequestException('Nothing outstanding');
       const due = toMinor(d.amount as string) - toMinor(d.paid as string);
       if (toMinor(b.amount) > due) throw new BadRequestException(`Only ${fromMinor(due)} is outstanding`);
-      const acc = await this.ledger.accounts(user.companyId);
-      const party = this.dueParty(d);
-      const lines = d.direction === 'receivable'
-        ? [{ accountId: b.accountId, debit: b.amount }, { accountId: acc.receivable, credit: b.amount, ...party }]
-        : [{ accountId: acc.payable, debit: b.amount, ...party }, { accountId: b.accountId, credit: b.amount }];
-      const je = await this.ledger.post(tx, { companyId: user.companyId, memo: `Payment ${d.number}`, sourceType: 'payables.due', sourceId: id, userId: user.id, lines });
-      await this.payment(tx, user, { direction: d.direction === 'receivable' ? 'in' : 'out', partyType: String(d.partyType), partyId: String(party.partyId ?? d.partyName), refType: 'payables.due', refId: id, amount: b.amount, accountId: b.accountId, methodId: b.methodId, journalId: je.id, idempotencyKey: b.idempotencyKey });
       const paid = toMinor(d.paid as string) + toMinor(b.amount);
-      const settled = paid >= toMinor(d.amount as string);
-      await this.resources.setStatus(tx, user, 'payables.due', id, settled ? 'settled' : 'partially_paid', { paid: fromMinor(paid) });
-      // A utility bill rides on this due: keep it in step however it's paid (from the bill or from P & R).
-      await tx.utilityBill.updateMany({ where: { dueId: id, companyId: user.companyId }, data: { paid: fromMinor(paid), status: settled ? 'paid' : 'partially_paid', ...(settled ? { paidAt: new Date() } : {}) } });
+      await this.resources.setStatus(tx, user, 'payables.due', id, paid >= toMinor(d.amount as string) ? 'settled' : 'partially_paid', { paid: fromMinor(paid) });
+      if (b.note) await tx.comment.create({ data: { companyId: user.companyId, entityType: 'payables.due', entityId: id, userId: user.id, body: `${d.direction === 'receivable' ? 'Received' : 'Paid'} ${b.amount}: ${b.note}`, internal: true } });
       return { outstanding: fromMinor(due - toMinor(b.amount)) };
     });
   }
 
-  /**
-   * One timeline of everything owed either way: manual dues + unpaid customer invoices + open vendor bills,
-   * with running totals. Invoices have no due date field, so their invoice date is used.
-   */
+  /** One timeline of everything owed either way (P & R's dues), with running totals and aging. */
   @Get('dues/timeline')
   async timeline(@CurrentUser() user: AuthUser, @Query() q: { direction?: string; to?: string }) {
     const to = q.to ? new Date(q.to) : undefined;
@@ -422,31 +390,8 @@ export class FinanceController {
         items.push({ source: 'payables.due', id: d.id, number: d.number ?? '', direction: d.direction as DueItem['direction'], party: d.partyName ?? '', description: d.description ?? '', dueDate: d.dueDate, amount: Number(d.amount), paid: Number(d.paid) });
       }
     }
-    if (q.direction !== 'payable' && can(user, 'repair.invoice.view')) {
-      const where = await this.resources.where(user, this.resources.meta('repair.invoice'), { filters: { status: { in: ['unpaid', 'partially_paid'] } } });
-      const inv = await this.prisma.invoice.findMany({ where: { ...where, ...(to ? { date: { lte: to } } : {}) } as Prisma.InvoiceWhereInput, take: 2000 });
-      const names = new Map((await this.prisma.customer.findMany({ where: { id: { in: inv.map((i) => i.customerId) } }, select: { id: true, name: true } })).map((c) => [c.id, c.name]));
-      // Due = invoice date + the company's credit terms.
-      const days = Number((await this.settings.get(user.companyId, 'finance.terms')).invoiceDays) || 0;
-      for (const i of inv) items.push({ source: 'repair.invoice', id: i.id, number: i.number ?? '', direction: 'receivable', party: names.get(i.customerId) ?? '', description: `Invoice · ${days}-day terms`, dueDate: new Date(+i.date + days * DAY), amount: Number(i.total) - Number(i.credited), paid: Number(i.paid) });
-    }
-    if (q.direction !== 'receivable' && can(user, 'purchase.bill.view')) {
-      const where = await this.resources.where(user, this.resources.meta('purchase.bill'), { filters: { status: { in: ['open', 'partially_paid'] } } });
-      const bills = await this.prisma.vendorBill.findMany({ where: where as Prisma.VendorBillWhereInput, take: 2000 });
-      const names = new Map((await this.prisma.vendor.findMany({ where: { id: { in: bills.map((b) => b.vendorId) } }, select: { id: true, name: true } })).map((v) => [v.id, v.name]));
-      for (const b of bills) {
-        const dueDate = b.dueDate ?? b.date;
-        if (!to || dueDate <= to) items.push({ source: 'purchase.bill', id: b.id, number: b.number ?? '', direction: 'payable', party: names.get(b.vendorId) ?? '', description: b.vendorRef ? `Bill ${b.vendorRef}` : 'Vendor bill', dueDate, amount: Number(b.amount), paid: Number(b.paid) });
-      }
-    }
-    // Opening point for the forecast: what's in cash and bank accounts right now.
-    let cash = 0;
-    if (can(user, 'finance.report.view') || can(user, 'finance.account.view')) {
-      const accs = await this.prisma.account.findMany({ where: { companyId: user.companyId, OR: [{ isCash: true }, { isBank: true }] }, select: { id: true } });
-      const agg = await this.prisma.journalLine.aggregate({ where: { companyId: user.companyId, accountId: { in: accs.map((a) => a.id) } }, _sum: { debit: true, credit: true } });
-      cash = fromMinor(toMinor(agg._sum.debit ?? 0) - toMinor(agg._sum.credit ?? 0));
-    }
-    return summarizeDues(items, new Date(), cash);
+    // P & R stands alone: only its own dues, no invoices, bills or bank balances from other modules.
+    return summarizeDues(items, new Date(), 0);
   }
 
   async payment(tx: Tx, user: AuthUser, p: { direction: string; partyType: string; partyId: string; refType: string; refId: string; amount: number; accountId: string; journalId: string; methodId?: string | null; idempotencyKey?: string; reference?: string }) {

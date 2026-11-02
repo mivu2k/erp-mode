@@ -198,7 +198,7 @@ model Due {
   paid        Decimal   @default(0) @db.Decimal(18, 2)
   dueDate     DateTime  @db.Date
   /// Income/expense (or loan) account on the other side of the posting
-  accountId   String
+  accountId   String?
   status      String    @default("open") // open | partially_paid | settled | cancelled
   journalId   String?
   custom      Json?

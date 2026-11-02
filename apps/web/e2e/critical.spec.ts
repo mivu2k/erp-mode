@@ -257,7 +257,8 @@ test('P&R: forecast, aging, by party, and a part payment straight from the timel
   await request.post('/api/r/payables.due', { headers: auth, data: { direction: 'receivable', partyName: `PR ${run}`, description: `PR test ${run}`, amount: '1000', dueDate: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10), accountId: acc.id } });
   await page.goto('/payables');
   await expect(page.getByText('Cash-flow forecast — next 8 weeks')).toBeVisible();
-  await expect(page.getByText('Cash & bank now')).toBeVisible();
+  await expect(page.getByText('Net position')).toBeVisible();
+  await expect(page.getByText('Cash & bank now')).toHaveCount(0); // P & R stands alone: no bank balances from finance
   await page.getByRole('tab', { name: 'Aging' }).click();
   await expect(page.getByRole('columnheader', { name: '90+ days' })).toBeVisible();
   await page.getByRole('tab', { name: 'By party' }).click();

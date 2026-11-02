@@ -23,7 +23,7 @@ const BUCKETS = [
 ] as const;
 const AGING = ['current', '1-30', '31-60', '61-90', '90+'];
 const SOURCE: Record<string, string> = { 'payables.due': 'Manual', 'repair.invoice': 'Invoice', 'purchase.bill': 'Vendor bill' };
-const PAY_PATH: Record<string, string> = { 'payables.due': 'finance/dues/:id/pay', 'repair.invoice': 'repair/invoices/:id/pay', 'purchase.bill': 'purchase/bills/:id/pay' };
+const PAY_PATH: Record<string, string> = { 'payables.due': 'finance/dues/:id/pay' };
 const when = (d: number) => (d > 0 ? `${d} day${d > 1 ? 's' : ''} overdue` : d === 0 ? 'due today' : `due in ${-d} day${d < -1 ? 's' : ''}`);
 
 /** Payables & receivables the way an accounts desk works them: cash position, forecast, aging, who owes what — and pay from the line. */
@@ -38,7 +38,7 @@ export default function Dues() {
   const [open, setOpen] = useState<Record<string, boolean>>({});
   useEffect(() => { setData(null); api<Data>(`finance/dues/timeline?${qs({ direction: dir })}`).then(setData).catch(setError); }, [dir, n]);
   const canAdd = can(meta, 'payables.due.create');
-  const canPay = can(meta, 'finance.payment.create');
+  const canPay = can(meta, 'payables.due.update'); // P & R's own register: marking paid needs no finance rights
   const t = data?.totals;
 
   return (
@@ -51,10 +51,9 @@ export default function Dues() {
       <ErrorBox error={error} />
       {t && (
         <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <KpiCard label="Cash & bank now" value={fmt(t.cash)} tone="blue" />
           <KpiCard label="To receive" value={fmt(t.receivable)} hint={t.overdueReceivable ? `${fmt(t.overdueReceivable)} overdue` : 'nothing overdue'} tone="green" />
           <KpiCard label="To pay" value={fmt(t.payable)} hint={t.overduePayable ? `${fmt(t.overduePayable)} overdue` : 'nothing overdue'} tone="red" />
-          <KpiCard label="Projected balance" value={fmt(t.projected)} hint="cash + to receive − to pay" tone={t.projected >= 0 ? 'green' : 'red'} />
+          <KpiCard label="Net position" value={fmt(t.projected)} hint="to receive − to pay" tone={t.projected >= 0 ? 'green' : 'red'} />
         </div>
       )}
       {data && <Forecast weeks={data.forecast} beyond={data.totals.beyondForecast} />}
@@ -223,23 +222,18 @@ function Forecast({ weeks, beyond }: { weeks: Week[]; beyond: { in: number; out:
 /** Record a (part) payment straight from the timeline: defaults to the full balance, into/from a cash or bank account. */
 function QuickPay({ row, onClose, onDone }: { row: Row; onClose(): void; onDone(): void }) {
   const [amount, setAmount] = useState(String(row.balance));
-  const [accountId, setAccountId] = useState('');
-  const [accounts, setAccounts] = useState<{ id: string; code: string; name: string }[]>([]);
+  const [note, setNote] = useState('');
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const inbound = row.direction === 'receivable';
-  useEffect(() => {
-    api<{ rows: { id: string; code: string; name: string }[] }>(`r/finance.account?${qs({ pageSize: 100, sort: 'code:asc', filters: { $or: [{ isCash: true }, { isBank: true }], isGroup: false } })}`)
-      .then((d) => { setAccounts(d.rows); setAccountId(d.rows[0]?.id ?? ''); }).catch(setError);
-  }, []);
   const submit = async () => {
     setBusy(true); setError(null);
-    try { await api(PAY_PATH[row.source].replace(':id', row.id), 'POST', { amount: Number(amount), accountId }); onDone(); } catch (e) { setError(e); } finally { setBusy(false); }
+    try { await api(PAY_PATH[row.source].replace(':id', row.id), 'POST', { amount: Number(amount), note: note || undefined }); onDone(); } catch (e) { setError(e); } finally { setBusy(false); }
   };
   const n = Number(amount);
   return (
     <Dialog open onClose={onClose} title={inbound ? `Receive from ${row.party}` : `Pay ${row.party}`}
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={busy || !accountId || !(n > 0) || n > row.balance} onClick={submit}>{busy ? 'Saving…' : inbound ? 'Record receipt' : 'Record payment'}</Button></>}>
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button disabled={busy || !(n > 0) || n > row.balance} onClick={submit}>{busy ? 'Saving…' : inbound ? 'Record receipt' : 'Record payment'}</Button></>}>
       <div className="mb-4 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
         <div className="flex justify-between"><span>{row.number} · {SOURCE[row.source]}</span><b className="tabular-nums">{fmt(row.balance)}</b></div>
         <div className="text-xs text-muted-foreground">{when(row.daysOverdue)}{row.paid ? ` · ${fmt(row.paid)} of ${fmt(row.amount)} already ${inbound ? 'received' : 'paid'}` : ''}</div>
@@ -257,10 +251,8 @@ function QuickPay({ row, onClose, onDone }: { row: Row; onClose(): void; onDone(
           </div>
         </div>
         <div>
-          <Label htmlFor="qp-acc" required>{inbound ? 'Received into' : 'Paid from'}</Label>
-          <Select id="qp-acc" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name}</option>)}
-          </Select>
+          <Label htmlFor="qp-note">Note (cheque no., how it was paid…)</Label>
+          <Input id="qp-note" value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
       </div>
     </Dialog>

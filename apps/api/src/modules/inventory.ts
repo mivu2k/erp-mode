@@ -163,7 +163,7 @@ export class InventoryController {
     // Without a PO nothing would be owed in the books, so those go through P&R › Add payable instead.
     const billFromPo = async ({ tx, user }: HookCtx, data: Row, before?: Row) => {
       const poId = String(data.poId ?? before?.poId ?? '');
-      if (!poId) throw new BadRequestException('Pick the purchase order this bill is for (bills without a PO: P & R › Add payable)');
+      if (!poId) throw new BadRequestException('Pick the purchase order this bill is for (bills without a PO: Finance › Record an expense)');
       const po = await tx.purchaseOrder.findFirst({ where: { id: poId, companyId: user.companyId }, include: { lines: true } });
       if (!po) throw new BadRequestException('Unknown purchase order');
       data.vendorId = po.vendorId;

@@ -737,17 +737,15 @@ test('SMS/WhatsApp webhook channel', async () => {
   assert.equal(m.auth, 'Bearer secret-t');
 });
 
-test('payables & receivables: create (with monthly repeat), timeline, pay, ledger', async () => {
-  const accounts = await list('finance.account', { code: { in: ['4100', '5330'] } });
-  const income = accounts.find((a) => a.code === '4100')!.id;
-  const expense = accounts.find((a) => a.code === '5330')!.id;
+test('payables & receivables: its own register — create (monthly repeat), timeline, mark paid; nothing in the ledger', async () => {
+  const journalsBefore = (await call('GET', 'r/finance.journal?pageSize=1')).total;
   const vendor = (await list('purchase.vendor'))[0];
-  const rent = await call('POST', 'r/payables.due', { direction: 'payable', vendorId: vendor.id, description: `Rent ${run}`, amount: '30000', dueDate: '2026-10-01', accountId: expense, repeatMonths: 3 });
+  const rent = await call('POST', 'r/payables.due', { direction: 'payable', vendorId: vendor.id, description: `Rent ${run}`, amount: '30000', dueDate: '2026-10-01', repeatMonths: 3 });
   assert.equal(rent.partyName, vendor.name);
   const rents = await list('payables.due', { description: `Rent ${run}` });
   assert.equal(rents.length, 3);
-  const loan = await call('POST', 'r/payables.due', { direction: 'receivable', partyName: `Friend ${run}`, description: `Loan ${run}`, amount: '5000', dueDate: '2026-01-15', accountId: income });
-  await assert.rejects(call('POST', 'r/payables.due', { direction: 'receivable', description: 'no party', amount: '1', dueDate: '2026-01-01', accountId: income }), /party/);
+  const loan = await call('POST', 'r/payables.due', { direction: 'receivable', partyName: `Friend ${run}`, description: `Loan ${run}`, amount: '5000', dueDate: '2026-01-15' });
+  await assert.rejects(call('POST', 'r/payables.due', { direction: 'receivable', description: 'no party', amount: '1', dueDate: '2026-01-01' }), /party/);
 
   const tl = await call('GET', 'finance/dues/timeline');
   const mine = tl.rows.filter((r: J) => String(r.description).includes(run));
@@ -756,16 +754,16 @@ test('payables & receivables: create (with monthly repeat), timeline, pay, ledge
   assert.equal(mine[0].bucket, 'overdue');
   assert.ok(mine[0].daysOverdue > 200 && mine[0].aging === '90+', 'days overdue + aging bucket');
   assert.equal(tl.forecast.length, 8);
-  assert.equal(typeof tl.totals.cash, 'number');
+  assert.equal(tl.totals.cash, 0, 'no bank balances from finance');
+  assert.ok(tl.rows.every((r: J) => r.source === 'payables.due'), 'only its own dues — no invoices or vendor bills');
   assert.ok(tl.aging.receivable['90+'] >= 5000);
   assert.ok(tl.parties.some((p: J) => p.party === `Friend ${run}` && p.direction === 'receivable'));
 
-  await call('POST', `finance/dues/${loan.id}/pay`, { amount: 2000, accountId: ctx.cash });
-  await assert.rejects(call('POST', `finance/dues/${loan.id}/pay`, { amount: 3000.01, accountId: ctx.cash }), /outstanding/);
-  await call('POST', `finance/dues/${loan.id}/pay`, { amount: 3000, accountId: ctx.cash });
+  await call('POST', `finance/dues/${loan.id}/pay`, { amount: 2000, note: 'Cash in hand' });
+  await assert.rejects(call('POST', `finance/dues/${loan.id}/pay`, { amount: 3000.01 }), /outstanding/);
+  await call('POST', `finance/dues/${loan.id}/pay`, { amount: 3000 });
   assert.equal((await call('GET', `r/payables.due/${loan.id}`)).status, 'settled');
-  const tb = await call('GET', 'finance/trial-balance');
-  assert.equal(tb.totals[0][1], tb.totals[1][1]);
+  assert.equal((await call('GET', 'r/finance.journal?pageSize=1')).total, journalsBefore, 'P & R posts nothing to the ledger');
 });
 
 test('fleet maintenance jobs live under Fleet, not in the Repair job list', async () => {
@@ -921,7 +919,7 @@ test('super admin override: edit/delete locked and read-only records, never ledg
   token = admin;
 });
 
-test('utilities: site → connection → readings → bill (auto units & charges) → payable on P&R → pay → tracker', async () => {
+test('utilities: site → connection → readings → bill (auto units & charges, booked in the ledger) → pay → tracker', async () => {
   const expense = (await list('finance.account', { code: '5330' }))[0].id;
   const site = await call('POST', 'r/utilities.site', { name: `Tower ${run}`, address: 'Sector F-8' });
   const vendor = (await list('purchase.vendor'))[0];
@@ -938,17 +936,18 @@ test('utilities: site → connection → readings → bill (auto units & charges
   assert.deepEqual([Number(bill.units), Number(bill.energyCharge), Number(bill.fixedCharge), Number(bill.total), bill.dueDate.slice(0, 10), bill.status], [350, 14000, 500, 16000, '2026-09-19', 'unpaid']);
   assert.equal(bill.siteId, site.id);
   await assert.rejects(call('POST', `utilities/connections/${conn.id}/bill`, { billDate: '2026-09-20', energyCharge: '100' }), /already has a bill for 2026-09/);
-  const due = await call('GET', `r/payables.due/${bill.dueId}`);
-  assert.deepEqual([due.direction, Number(due.amount), due.vendorId], ['payable', 16000, vendor.id], 'booked as a payable on P&R');
+  assert.equal(bill.dueId, null, 'nothing on P & R');
+  assert.equal((await list('finance.journal', { sourceType: 'utilities.bill', sourceId: bill.id })).length, 1, 'booked in the ledger: expense → payables');
 
   await call('POST', `utilities/bills/${bill.id}/dispute`, { reason: 'Wrong tariff' });
   await assert.rejects(call('POST', `utilities/bills/${bill.id}/pay`, { amount: 100, accountId: ctx.cash }), /Resolve the dispute/);
   await call('POST', `utilities/bills/${bill.id}/dispute`, {});
   const part = await call('POST', `utilities/bills/${bill.id}/pay`, { amount: 6000, accountId: ctx.cash });
   assert.deepEqual([part.bill.status, Number(part.bill.paid)], ['partially_paid', 6000]);
-  await call('POST', `finance/dues/${bill.dueId}/pay`, { amount: 10000, accountId: ctx.cash }); // paid from P&R instead
-  const done = await call('GET', `r/utilities.bill/${bill.id}`);
-  assert.deepEqual([done.status, Number(done.paid), !!done.paidAt], ['paid', 16000, true], 'bill follows its payable');
+  await assert.rejects(call('POST', `utilities/bills/${bill.id}/pay`, { amount: 10000.01, accountId: ctx.cash }), /outstanding/);
+  const rest = await call('POST', `utilities/bills/${bill.id}/pay`, { amount: 10000, accountId: ctx.cash });
+  assert.deepEqual([rest.bill.status, Number(rest.bill.paid), !!rest.bill.paidAt], ['paid', 16000, true]);
+  assert.equal((await list('finance.payment', { refType: 'utilities.bill', refId: bill.id })).length, 2, 'both payments in the cash book');
 
   const tr = await call('GET', `utilities/tracker?siteId=${site.id}&months=6`);
   const row = tr.rows.find((x: J) => x.id === conn.id);

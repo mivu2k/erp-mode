@@ -3,7 +3,7 @@ import { fromMinor, toMinor } from '@erp/shared';
 import { z } from 'zod';
 import { HookCtx, HooksService, Row } from '../engine/hooks';
 import { parse, ResourceService } from '../engine/resource.service';
-import { NumberingService } from '../platform/numbering.service';
+import { LedgerService } from '../platform/ledger.service';
 import type { Tx } from '../platform/audit.service';
 import { PrismaService } from '../platform/prisma.service';
 import { assertCan, AuthUser, CurrentUser, Permissions } from '../rbac/rbac';
@@ -65,7 +65,7 @@ const readingBody = z.object({ date: z.coerce.date(), reading: z.coerce.number()
 
 @Controller('utilities')
 export class UtilitiesController {
-  constructor(private prisma: PrismaService, private resources: ResourceService, private numbering: NumberingService, private finance: FinanceController, hooks: HooksService) {
+  constructor(private prisma: PrismaService, private resources: ResourceService, private finance: FinanceController, private ledger: LedgerService, hooks: HooksService) {
     const conn = async ({ tx, user }: HookCtx, id: unknown) => {
       const c = await tx.utilityConnection.findFirst({ where: { id: String(id ?? ''), companyId: user.companyId, deletedAt: null } });
       if (!c) throw new BadRequestException('Pick a utility connection');
@@ -106,20 +106,16 @@ export class UtilitiesController {
         await this.fillDefaults(ctx.tx, c, data);
         if (!(Number(data.total) > 0)) throw new BadRequestException('The bill total is zero — enter the charges or the units');
       },
-      // Book the bill as a payable on P & R (expense → payable) in the same transaction.
+      // Book the bill in the ledger (Dr the connection's expense account / Cr Payables to the provider), same transaction.
       afterCreate: async ({ tx, user }, rec) => {
         const c = await tx.utilityConnection.findUniqueOrThrow({ where: { id: String(rec.connectionId) } });
-        const vendor = c.vendorId ? await tx.vendor.findFirst({ where: { id: c.vendorId, companyId: user.companyId } }) : null;
-        const due = await tx.due.create({
-          data: {
-            companyId: user.companyId, branchId: rec.branchId as string | null, direction: 'payable', partyType: vendor ? 'vendor' : 'other', vendorId: vendor?.id ?? null,
-            partyName: vendor?.name ?? c.provider ?? c.name, description: `Utility bill ${rec.number} · ${c.name}${rec.billRef ? ` (${rec.billRef})` : ''}`,
-            amount: rec.total as never, dueDate: rec.dueDate as Date, accountId: c.accountId, status: 'open', createdById: user.id,
-            number: await this.numbering.next(tx, user.companyId, rec.branchId as string | null, 'DUE', 'DUE-{YYYY}-{SEQ:5}', rec.dueDate as Date),
-          },
+        const acc = await this.ledger.accounts(user.companyId);
+        const party = c.vendorId ? { partyType: 'vendor', partyId: c.vendorId } : {};
+        await this.ledger.post(tx, {
+          companyId: user.companyId, branchId: rec.branchId as string | null, date: rec.billDate as Date, memo: `Utility bill ${rec.number} · ${c.name}${rec.billRef ? ` (${rec.billRef})` : ''}`,
+          sourceType: 'utilities.bill', sourceId: String(rec.id), userId: user.id,
+          lines: [{ accountId: c.accountId, debit: Number(rec.total) }, { accountId: acc.payable, credit: Number(rec.total), ...party }],
         });
-        await this.finance.postDue(tx, user, due as unknown as Row);
-        await tx.utilityBill.update({ where: { id: String(rec.id) }, data: { dueId: due.id } });
       },
     });
   }
@@ -169,15 +165,29 @@ export class UtilitiesController {
     return this.resources.create(user, 'utilities.bill', { ...body, connectionId: id });
   }
 
-  /** Pays the bill's payable; the bill's paid/status follow automatically (see FinanceController.payDue). */
+  /** Pays the bill: Dr Payables / Cr the cash or bank account, a payment record, and the bill's paid / status. */
   @Post('bills/:id/pay')
   @Permissions('finance.payment.create')
-  async pay(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
-    const bill = await this.resources.get(user, 'utilities.bill', id);
-    if (bill.status === 'disputed') throw new BadRequestException('Resolve the dispute before paying');
-    if (!bill.dueId) throw new BadRequestException('This bill has no payable booked');
-    const r = await this.finance.payDue(user, String(bill.dueId), body);
-    return { ...r, bill: await this.resources.get(user, 'utilities.bill', id) };
+  pay(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
+    const b = parse(z.object({ amount: z.coerce.number().positive(), accountId: z.string(), methodId: z.string().nullish(), idempotencyKey: z.string().max(100).optional() }), body);
+    return this.prisma.$transaction(async (tx) => {
+      const bill = await this.resources.load(tx, user, 'utilities.bill', id, 'update');
+      if (bill.status === 'disputed') throw new BadRequestException('Resolve the dispute before paying');
+      const open = toMinor(bill.total as string) - toMinor(bill.paid as string);
+      if (toMinor(b.amount) > open) throw new BadRequestException(`Only ${fromMinor(open)} is outstanding`);
+      const c = await tx.utilityConnection.findUniqueOrThrow({ where: { id: String(bill.connectionId) } });
+      const acc = await this.ledger.accounts(user.companyId);
+      const party = c.vendorId ? { partyType: 'vendor', partyId: c.vendorId } : {};
+      const je = await this.ledger.post(tx, {
+        companyId: user.companyId, memo: `Payment ${bill.number} · ${c.name}`, sourceType: 'utilities.bill', sourceId: id, userId: user.id,
+        lines: [{ accountId: acc.payable, debit: b.amount, ...party }, { accountId: b.accountId, credit: b.amount }],
+      });
+      await this.finance.payment(tx, user, { direction: 'out', partyType: c.vendorId ? 'vendor' : 'other', partyId: c.vendorId ?? c.name, refType: 'utilities.bill', refId: id, amount: b.amount, accountId: b.accountId, methodId: b.methodId, journalId: je.id, idempotencyKey: b.idempotencyKey });
+      const paid = toMinor(bill.paid as string) + toMinor(b.amount);
+      const settled = paid >= toMinor(bill.total as string);
+      await tx.utilityBill.update({ where: { id }, data: { paid: fromMinor(paid), status: settled ? 'paid' : 'partially_paid', ...(settled ? { paidAt: new Date() } : {}) } });
+      return { outstanding: fromMinor(open - toMinor(b.amount)), bill: await this.resources.get(user, 'utilities.bill', id, tx) };
+    });
   }
 
   /** Toggle "disputed": holds payment while the provider corrects the bill. */
