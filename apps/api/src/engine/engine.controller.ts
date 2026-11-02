@@ -264,7 +264,7 @@ export class SearchController {
     const products = can(user, 'inventory.product.view') && !hits.some((h) => h.entityType === 'inventory.product')
       ? (await this.prisma.product.findMany({ where: { companyId: user.companyId, deletedAt: null, OR: [{ sku: code }, { barcodes: { contains: code } }] }, select: { id: true, name: true, sku: true, barcodes: true }, take: 10 }))
         .filter((p) => p.sku === code || (p.barcodes ?? '').split(/[\s,;]+/).includes(code)) : [];
-    const jobs = (await this.prisma.job.findMany({ where: { companyId: user.companyId, OR: [{ serial: code }, { assetTag: code }], deletedAt: null }, select: { id: true, number: true, status: true, kind: true }, take: 10 }))
+    const jobs = (await this.prisma.job.findMany({ where: { companyId: user.companyId, serial: code, deletedAt: null }, select: { id: true, number: true, status: true, kind: true }, take: 10 }))
       .map((j) => ({ ...j, key: j.kind === 'fleet' ? 'fleet.maintenance' : 'repair.job' })).filter((j) => can(user, `${j.key}.view`));
     return [
       ...hits,
@@ -532,7 +532,7 @@ export class PrintController {
       const cond = (j: Row) => String((j.condition as { notes?: string } | null)?.notes ?? '');
       const findings = (j: Row) => String((j.diagnosis as { findings?: string } | null)?.findings ?? '');
       if (key === 'repair.intake') {
-        for (const j of jobs as Row[]) lineRows.push({ job: j.number, equipment: device(j), serial: [j.serial, j.assetTag].filter(Boolean).join(' / '), accessories: list(j.accessories) || 'None', condition: cond(j) || 'As received', fault: j.fault, warranty: j.warranty ? 'Yes' : 'No', promised: j.expectedAt ? String((j.expectedAt as Date).toISOString?.() ?? j.expectedAt).slice(0, 10) : '' });
+        for (const j of jobs as Row[]) lineRows.push({ job: j.number, equipment: device(j), serial: j.serial, accessories: list(j.accessories) || 'None', condition: cond(j) || 'As received', fault: j.fault, warranty: j.warranty ? 'Yes' : 'No', promised: j.expectedAt ? String((j.expectedAt as Date).toISOString?.() ?? j.expectedAt).slice(0, 10) : '' });
         lineCols = ['job', 'equipment', 'serial', 'accessories', 'condition', 'fault', 'warranty', 'promised'].filter((c) => lineRows.some((r) => r[c]));
         sections.unshift(['Summary', [['Units received', jobs.length], ['Warranty claims', (jobs as Row[]).filter((j) => j.warranty).length || 'None']]]);
       } else if (key === 'repair.job') {
@@ -546,7 +546,7 @@ export class PrintController {
         lineCols = ['part', 'sku', 'serial', 'reserved', 'fitted'].filter((c) => lineRows.some((r) => r[c]));
       } else if (jobs.length === 1) {
         const j = jobs[0] as Row;
-        sections.unshift(['Equipment', ([['Device', device(j)], ['Serial', j.serial], ['Asset tag', j.assetTag], ['Accessories', list(j.accessories)], ['Reported fault', j.fault], ['Findings', findings(j)], ['Warranty', j.warranty ? 'Yes' : '']] as [string, unknown][]).filter(([, v]) => v)]);
+        sections.unshift(['Equipment', ([['Device', device(j)], ['Serial', j.serial], ['Accessories', list(j.accessories)], ['Reported fault', j.fault], ['Findings', findings(j)], ['Warranty', j.warranty ? 'Yes' : '']] as [string, unknown][]).filter(([, v]) => v)]);
       } else if (jobs.length > 1) {
         sections.unshift(['Equipment', (jobs as Row[]).map((j): [string, unknown] => [String(j.number), [device(j), j.serial && `S/N ${j.serial}`, j.fault].filter(Boolean).join(' · ')])]);
       }

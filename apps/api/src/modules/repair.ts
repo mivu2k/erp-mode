@@ -6,7 +6,6 @@ import { HookCtx, HooksService, Row } from '../engine/hooks';
 import { unitByCode } from './serials';
 import { parse, ResourceService } from '../engine/resource.service';
 import { AuditService, Tx } from '../platform/audit.service';
-import { decrypt, encrypt } from '../platform/crypto';
 import { LedgerService } from '../platform/ledger.service';
 import { NotifyService } from '../platform/notify.service';
 import { NumberingService } from '../platform/numbering.service';
@@ -21,8 +20,7 @@ export interface QuoteLine { kind: 'labor' | 'part'; refId: string; description:
 const quoteLine = z.object({ jobId: z.string().optional(), kind: z.enum(['labor', 'part']), refId: z.string().default(''), description: z.string(), qty: z.coerce.number().positive(), price: z.coerce.number().min(0), taxRate: z.coerce.number().min(0).default(0) });
 const item = z.object({
   productId: z.string().max(191).optional(), productType: z.string().max(191).optional(), brand: z.string().max(191).optional(), model: z.string().max(191).optional(), serial: z.string().max(191).optional(),
-  assetTag: z.string().max(191).optional(), firmwareVersion: z.string().max(191).optional(), frequencyBand: z.string().max(191).optional(), zeroized: z.boolean().optional(),
-  accessories: z.array(z.string()).optional(), condition: z.record(z.unknown()).optional(), fault: z.string().min(1), password: z.string().optional(),
+  accessories: z.array(z.string()).optional(), condition: z.record(z.unknown()).optional(), fault: z.string().min(1),
   warranty: z.boolean().optional(), expectedAt: z.coerce.date().optional(), warrantyDays: z.number().int().optional(),
 });
 const paySchema = z.object({ amount: z.coerce.number().positive(), accountId: z.string(), methodId: z.string().nullish(), idempotencyKey: z.string().max(100).optional() });
@@ -78,7 +76,7 @@ export class RepairController {
       const intake = await tx.intake.create({ data: { companyId: user.companyId, branchId: user.branchId, number, customerId: b.customerId, notes: b.notes, createdById: user.id } });
       const jobs = [];
       for (const it of b.items) {
-        const { password, ...rest } = it;
+        const rest = { ...it };
         if (it.serial && !rest.warranty) {
           const unit = await unitByCode(tx, user.companyId, it.serial);
           if (unit?.warrantyUntil && unit.warrantyUntil >= new Date(new Date().toISOString().slice(0, 10))) rest.warranty = true;
@@ -89,7 +87,7 @@ export class RepairController {
           data: {
             ...rest, companyId: user.companyId, branchId: user.branchId, intakeId: intake.id, customerId: b.customerId, createdById: user.id,
             number: await this.numbering.next(tx, user.companyId, user.branchId, 'JOB', 'JOB-{YYYY}-{SEQ:6}'),
-            passwordEnc: password ? encrypt(password) : null, accessories: rest.accessories as Prisma.InputJsonValue, condition: rest.condition as Prisma.InputJsonValue,
+            accessories: rest.accessories as Prisma.InputJsonValue, condition: rest.condition as Prisma.InputJsonValue,
           },
         });
         await this.index(tx, job);
@@ -105,8 +103,8 @@ export class RepairController {
   private async index(tx: Tx, rec: Row) {
     await tx.searchIndex.upsert({
       where: { entityType_entityId: { entityType: 'repair.job', entityId: String(rec.id) } },
-      update: { title: String(rec.number), subtitle: [rec.brand, rec.model].filter(Boolean).join(' '), keywords: [rec.serial, rec.assetTag, rec.fault].filter(Boolean).join(' '), barcode: String(rec.number) },
-      create: { companyId: String(rec.companyId), module: 'repair', entityType: 'repair.job', entityId: String(rec.id), title: String(rec.number), subtitle: [rec.brand, rec.model].filter(Boolean).join(' '), keywords: [rec.serial, rec.assetTag, rec.fault].filter(Boolean).join(' '), barcode: String(rec.number) },
+      update: { title: String(rec.number), subtitle: [rec.brand, rec.model].filter(Boolean).join(' '), keywords: [rec.serial, rec.fault].filter(Boolean).join(' '), barcode: String(rec.number) },
+      create: { companyId: String(rec.companyId), module: 'repair', entityType: 'repair.job', entityId: String(rec.id), title: String(rec.number), subtitle: [rec.brand, rec.model].filter(Boolean).join(' '), keywords: [rec.serial, rec.fault].filter(Boolean).join(' '), barcode: String(rec.number) },
     });
   }
 
@@ -216,7 +214,7 @@ export class RepairController {
       const job = await this.job(tx, user, id);
       if (!['approved', 'in_repair', 'qc'].includes(job.status)) throw new BadRequestException('Tests are recorded during repair / QC');
       const testResults = { ...b, by: user.name, at: new Date().toISOString() };
-      await tx.job.update({ where: { id }, data: { testResults, ...(b.firmwareAfter ? { firmwareVersion: b.firmwareAfter } : {}) } });
+      await tx.job.update({ where: { id }, data: { testResults } });
       await this.audit.log({ companyId: user.companyId, userId: user.id, action: b.pass ? 'qc_pass' : 'qc_fail', entityType: this.jobKey(job), entityId: id, after: testResults }, tx);
       // Statuses follow the work: a labour-only job starts repair with its test; a pass is ready for pickup, a fail goes back to repair.
       if (job.status === 'approved') await this.transition(tx, user, id, 'in_repair');
@@ -691,16 +689,6 @@ export class RepairController {
     });
   }
 
-  /** Restricted: decrypts the customer's device password, audit-logged. */
-  @Post('repair/jobs/:id/password')
-  @Permissions('repair.job.manage')
-  async password(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    const job = await this.prisma.job.findFirst({ where: { id, companyId: user.companyId } });
-    if (!job) throw new NotFoundException();
-    await this.audit.log({ companyId: user.companyId, userId: user.id, action: 'reveal_password', entityType: 'repair.job', entityId: id });
-    return { password: job.passwordEnc ? decrypt(job.passwordEnc) : null };
-  }
-
   /** Approved credit note → Dr sales returns / Cr cash (refund) or receivable (credit). */
   @Post('repair/creditnotes/:id/post')
   @Permissions('repair.creditnote.approve')
@@ -754,7 +742,7 @@ export class RepairController {
     const c = user.companyId;
     // Any of a unit's codes finds it; its jobs are found by the code or the unit's main serial.
     const item = await unitByCode(this.prisma, c, code);
-    const unitJobs = { companyId: c, deletedAt: null, OR: [{ serial: code }, { assetTag: code }, ...(item ? [{ serial: item.serial }] : [])] };
+    const unitJobs = { companyId: c, deletedAt: null, OR: [{ serial: code }, ...(item ? [{ serial: item.serial }] : [])] };
     const [job, repairs] = await Promise.all([
       this.prisma.job.findFirst({ where: unitJobs, orderBy: { createdAt: 'desc' } }),
       this.prisma.job.count({ where: unitJobs }),
@@ -773,7 +761,7 @@ export class RepairController {
       found: true, repairs,
       unit: {
         productId, productType: pick(job?.productType, item?.itemName), brand: pick(job?.brand, item?.brand, product?.brand), model: pick(job?.model, item?.model, product?.model),
-        serial: pick(job?.serial, item?.serial), assetTag: pick(job?.assetTag), frequencyBand: pick(job?.frequencyBand), firmwareVersion: pick(job?.firmwareVersion),
+        serial: pick(job?.serial, item?.serial),
         accessories: Array.isArray(job?.accessories) ? job!.accessories : [],
       },
       label: pick(product?.name, item?.itemName, [job?.brand, job?.model].filter(Boolean).join(' ')),

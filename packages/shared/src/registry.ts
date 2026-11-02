@@ -397,7 +397,7 @@ export const RESOURCES: ResourceDef[] = [
       { name: 'deliver', label: 'Deliver all ready units', path: 'repair/intakes/:id/deliver', fields: { receivedBy: { type: 'string', label: 'Received by' } }, permission: 'repair.delivery.create' },
     ],
     related: [
-      { resource: 'repair.job', field: 'intakeId', label: 'Units', columns: ['number', 'productType', 'model', 'serial', 'assetTag', 'status'] },
+      { resource: 'repair.job', field: 'intakeId', label: 'Units', columns: ['number', 'productType', 'model', 'serial', 'status'] },
       { resource: 'repair.quotation', field: 'intakeId', label: 'Quotations', columns: ['number', 'version', 'total', 'status'] },
       { resource: 'repair.invoice', field: 'intakeId', label: 'Invoices', columns: ['number', 'date', 'total', 'paid', 'status'] },
       { resource: 'repair.delivery', field: 'intakeId', label: 'Delivery orders', columns: ['number', 'receivedBy', 'createdAt'] },
@@ -409,10 +409,11 @@ export const RESOURCES: ResourceDef[] = [
       { resource: 'repair.quotation', field: 'jobId', label: 'Quotations', columns: ['number', 'version', 'total', 'status'] },
       { resource: 'repair.invoice', field: 'jobId', label: 'Invoices', columns: ['number', 'date', 'total', 'paid', 'status'] },
     ],
-    list: ['number', 'customerId', 'productType', 'model', 'serial', 'assetTag', 'technicianId', 'status', 'expectedAt'],
-    search: ['number', 'serial', 'assetTag', 'brand', 'model', 'productType', 'firmwareVersion', 'fault'], barcode: 'number',
+    list: ['number', 'customerId', 'productType', 'model', 'serial', 'technicianId', 'status', 'expectedAt'],
+    search: ['number', 'serial', 'brand', 'model', 'productType', 'fault'], barcode: 'number',
     refs: { customerId: 'sales.customer', technicianId: 'hrm.employee', intakeId: 'repair.intake', vendorId: 'purchase.vendor', parentJobId: 'repair.job' },
-    hidden: ['passwordEnc', 'trackToken', 'vehicleId', 'odometer'], readonly: ['status', 'diagnosis', 'deliveredAt', 'closedAt', 'kind', 'testResults', 'intakeId', 'condition'],
+    // Radio-shop extras (crypto / COMSEC zeroized, device password, asset tag, firmware, band) are no longer used; old values stay in the database.
+    hidden: ['passwordEnc', 'trackToken', 'vehicleId', 'odometer', 'zeroized', 'assetTag', 'firmwareVersion', 'frequencyBand'], readonly: ['status', 'diagnosis', 'deliveredAt', 'closedAt', 'kind', 'testResults', 'intakeId', 'condition'],
     ops: ['update'], printable: true, owner: 'technicianId', timeTracking: true, calendar: 'expectedAt',
     statuses: ['received', 'assigned', 'diagnosing', 'diagnosed', 'quotation_sent', 'approved', 'parts_pending', 'in_repair', 'qc', 'ready', 'delivered', 'closed'],
     actions: [
@@ -438,7 +439,6 @@ export const RESOURCES: ResourceDef[] = [
       { name: 'deliver', label: 'Deliver', path: 'repair/jobs/:id/deliver', when: ['ready', 'returned_unrepaired', 'not_repairable', 'declined'], fields: { receivedBy: { type: 'string' } }, permission: 'repair.delivery.create' },
       { name: 'comeback', label: 'Open comeback job', path: 'repair/jobs/:id/comeback', when: ['delivered', 'closed'], fields: { fault: { type: 'text', required: true } }, permission: 'repair.job.create' },
       { name: 'tag', label: 'Print job tag', path: 'print/repair.job/:id?template=label', opens: true, permission: 'repair.job.print' },
-      { name: 'password', label: 'Reveal device PIN / password', path: 'repair/jobs/:id/password', permission: 'repair.job.manage' },
     ],
   },
   {

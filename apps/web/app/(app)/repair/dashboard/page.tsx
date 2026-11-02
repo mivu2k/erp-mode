@@ -1,17 +1,24 @@
 'use client';
 import { BarChart, Card, KpiCard, PageHeader, Select } from '@erp/ui';
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { useMeta } from '@/lib/meta';
 import { api } from '@/lib/api';
 
 interface D { byStatus: { status: string; count: number }[]; workload: { technician: string; open: number }[]; overdue: number; avgTurnaroundHours: number; revenue: { labor: number; parts: number }; topFaults: { fault: string; count: number }[]; comebackRate: number }
 
 export default function RepairDashboard() {
+  const meta = useMeta();
   const [days, setDays] = useState('30');
   const [d, setD] = useState<D | null>(null);
   useEffect(() => { api<D>(`repair/dashboard?days=${days}`).then(setD); }, [days]);
   return (
     <>
       <PageHeader title="Repair dashboard" actions={<Select aria-label="Period" value={days} onChange={(e) => setDays(e.target.value)} className="w-36"><option value="7">Last 7 days</option><option value="30">Last 30 days</option><option value="90">Last 90 days</option></Select>} />
+      {/* Quotations, invoices, refunds and deliveries are opened from their job / intake; the full lists are here. */}
+      <nav aria-label="Repair documents" className="mb-4 flex flex-wrap gap-2 text-sm">
+        {meta.resources.filter((r) => ['repair.quotation', 'repair.invoice', 'repair.creditnote', 'repair.delivery'].includes(r.key)).map((r) => <Link key={r.key} href={`/r/${r.key}`} className="rounded-full border border-border px-3 py-1 hover:bg-muted">All {r.label.toLowerCase()}</Link>)}
+      </nav>
       {d && (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

@@ -14,7 +14,7 @@ export interface PrintProfile {
   note?: string;
 }
 
-const EQUIPMENT: [string, string[]] = ['Equipment', ['productType', 'brand', 'model', 'serial', 'assetTag', 'firmwareVersion', 'frequencyBand', 'accessories', 'zeroized', 'warranty', 'warrantyDays']];
+const EQUIPMENT: [string, string[]] = ['Equipment', ['productType', 'brand', 'model', 'serial', 'accessories', 'warranty', 'warrantyDays']];
 
 export const PRINT_PROFILES: Record<string, PrintProfile> = {
   'repair.job': {

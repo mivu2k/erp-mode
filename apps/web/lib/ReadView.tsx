@@ -203,7 +203,7 @@ export function RepairUnit({ jobId }: { jobId: string }): ReactNode {
   if (!j) return null;
   const rows: [string, unknown][] = ([
     ['Device', [j.brand, j.model, j.productType && `(${j.productType})`].filter(Boolean).join(' ')],
-    ['Serial', j.serial], ['Asset tag', j.assetTag],
+    ['Serial', j.serial],
     ['Accessories', Array.isArray(j.accessories) ? (j.accessories as string[]).join(', ') : ''],
     ['Reported fault', j.fault], ['Findings', (j.diagnosis as { findings?: string } | null)?.findings],
     ['Technician', j._refs?.technicianId], ['Status', humanize(String(j.status ?? ''))],

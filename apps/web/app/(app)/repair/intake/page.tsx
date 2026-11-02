@@ -14,8 +14,6 @@ interface Known { state: 'loading' | 'new' | 'known'; warranty?: string; repairs
 
 const idFields: FieldMeta[] = [
   { name: 'brand', type: 'string', label: 'Make' }, { name: 'model', type: 'string', label: 'Model' },
-  { name: 'assetTag', type: 'string', label: 'Asset tag / unit no.' },
-  { name: 'firmwareVersion', type: 'string', label: 'Firmware version' }, { name: 'frequencyBand', type: 'string', label: 'Frequency band' },
 ];
 const DRAFT = 'repair.intake.draft';
 const blank = (): Item => ({ accessories: [] });
@@ -49,7 +47,7 @@ export default function IntakePage() {
   }, []);
   useEffect(() => {
     if (!loaded) return;
-    try { localStorage.setItem(DRAFT, JSON.stringify({ customerId, notes, items: items.map(({ photos: _p, password: _pw, ...i }) => i) })); } catch { /* storage off */ }
+    try { localStorage.setItem(DRAFT, JSON.stringify({ customerId, notes, items: items.map(({ photos: _p, ...i }) => i) })); } catch { /* storage off */ }
   }, [loaded, customerId, notes, items]);
 
   const set = (i: number, patch: Partial<Item>) => setItems((xs) => xs.map((x, j) => (j === i ? { ...x, ...patch } : x)));
@@ -169,7 +167,7 @@ export default function IntakePage() {
             <Card key={i} title={<span><Step n={i + 2} />Unit {i + 1}{unitLabel(it) ? <span className="font-normal text-muted-foreground"> — {unitLabel(it)}</span> : null}</span>}
               actions={<span className="flex gap-1">
                 <Button variant="ghost" size="sm" title="Add another unit with the same type, make, model and accessories"
-                  onClick={() => setItems([...items.slice(0, i + 1), { productType: it.productType, brand: it.brand, model: it.model, frequencyBand: it.frequencyBand, firmwareVersion: it.firmwareVersion, accessories: [...(it.accessories ?? [])], fault: it.fault }, ...items.slice(i + 1)])}>Duplicate</Button>
+                  onClick={() => setItems([...items.slice(0, i + 1), { productType: it.productType, brand: it.brand, model: it.model, accessories: [...(it.accessories ?? [])], fault: it.fault }, ...items.slice(i + 1)])}>Duplicate</Button>
                 {items.length > 1 && <Button variant="ghost" size="sm" onClick={() => { setItems(items.filter((_, j) => j !== i)); setKnown({}); }}>Remove</Button>}
               </span>}>
               <div className="space-y-5">
@@ -198,7 +196,7 @@ export default function IntakePage() {
                   {idFields.map((f) => (
                     <div key={f.name}>
                       <Label htmlFor={`${f.name}${i}`}>{f.label}</Label>
-                      <Input id={`${f.name}${i}`} list={f.name === 'brand' || f.name === 'model' ? `${f.name}s${i}` : undefined} value={String(it[f.name] ?? '')} placeholder={f.name === 'frequencyBand' ? 'e.g. VHF 136–174 MHz' : undefined} onChange={(e) => set(i, { [f.name]: e.target.value })} />
+                      <Input id={`${f.name}${i}`} list={f.name === 'brand' || f.name === 'model' ? `${f.name}s${i}` : undefined} value={String(it[f.name] ?? '')} onChange={(e) => set(i, { [f.name]: e.target.value })} />
                     </div>
                   ))}
                   {/* Makes and models already seen on jobs; models narrow to the make typed (any make if none). */}
@@ -238,7 +236,7 @@ export default function IntakePage() {
                   </div>
                 </div>
 
-                <details className="group rounded-lg border border-border" open={!!(it.photos?.length || it.conditionNotes || it.password || it.expectedAt)}>
+                <details className="group rounded-lg border border-border" open={!!(it.photos?.length || it.conditionNotes || it.expectedAt)}>
                   <summary className="cursor-pointer select-none px-4 py-2.5 text-sm font-medium text-foreground/80">Condition, photos &amp; more <span className="font-normal text-muted-foreground">(optional)</span></summary>
                   <div className="space-y-5 border-t border-border p-4">
                     <div>
@@ -264,11 +262,6 @@ export default function IntakePage() {
                         <Input id={`cond${i}`} value={String(it.conditionNotes ?? '')} onChange={(e) => set(i, { conditionNotes: e.target.value })} placeholder="Scratches, missing knobs, cracked housing, seal damage…" />
                       </div>
                       <div>
-                        <Label htmlFor={`pw${i}`}>Device PIN / admin password</Label>
-                        <Input id={`pw${i}`} type="password" autoComplete="off" value={String(it.password ?? '')} onChange={(e) => set(i, { password: e.target.value })} />
-                        <p className="mt-1 text-xs text-muted-foreground">Stored encrypted; only managers can reveal it. Not kept in the draft.</p>
-                      </div>
-                      <div>
                         <Label htmlFor={`exp${i}`}>Expected ready</Label>
                         <Input id={`exp${i}`} type="date" value={String(it.expectedAt ?? '').slice(0, 10)} onChange={(e) => set(i, { expectedAt: e.target.value || undefined })} />
                         <span className="mt-1 flex gap-2 text-xs">
@@ -281,7 +274,6 @@ export default function IntakePage() {
 
                 <div className="flex flex-wrap gap-x-6 gap-y-3">
                   <Switch checked={!!it.warranty} onChange={(v) => set(i, { warranty: v })} label="Under warranty" />
-                  <Switch checked={!!it.zeroized} onChange={(v) => set(i, { zeroized: v })} label="Crypto / COMSEC keys zeroized" />
                 </div>
               </div>
             </Card>

@@ -119,7 +119,7 @@ test('Inventory + Purchase: PO → GRN with serials → weighted average', async
 test('Repair: intake → diagnose/quote → accept → issue → invoice → pay → deliver', async () => {
   const cust = await call('POST', 'r/sales.customer', { name: `Customer ${run}`, phone: '0300' });
   const intake = await call('POST', 'repair/intakes', { customerId: cust.id, items: [
-    { productType: 'Handheld radio', brand: 'Motorola', model: 'APX 6000', serial: `IMEI-${run}`, assetTag: `UNIT-${run}`, frequencyBand: 'VHF 136-174 MHz', firmwareVersion: 'R01.00', zeroized: true, accessories: ['Battery', 'Antenna'], fault: 'No transmit', password: '1234' },
+    { productType: 'Handheld radio', brand: 'Motorola', model: 'APX 6000', serial: `IMEI-${run}`, accessories: ['Battery', 'Antenna'], fault: 'No transmit' },
     { productType: 'Gateway / router', brand: 'Cisco', model: 'IR1101', fault: 'Network link down' },
   ] });
   assert.equal(intake.jobs.length, 2);
@@ -142,7 +142,7 @@ test('Repair: intake → diagnose/quote → accept → issue → invoice → pay
   await call('POST', `repair/jobs/${jobId}/test`, { rfPowerW: 5, rxSensitivity: '0.25 µV', freqErrorHz: 120, vswr: 1.3, audioOk: true, firmwareAfter: 'R02.10', pass: true });
   const passed = await call('GET', `r/repair.job/${jobId}`);
   assert.equal(passed.status, 'ready', 'a passing QC test makes the unit ready for pickup');
-  assert.equal(passed.firmwareVersion, 'R02.10');
+  assert.equal(passed.testResults.firmwareAfter, 'R02.10', 'firmware after repair stays on the QC record');
   await assert.rejects(call('POST', `repair/jobs/${jobId}/status`, { status: 'received' }), /Cannot move/);
   const inv = await call('POST', `repair/jobs/${jobId}/invoice`, {});
   await call('POST', `repair/invoices/${inv.id}/pay`, { amount: 5000, accountId: ctx.cash });
@@ -150,15 +150,14 @@ test('Repair: intake → diagnose/quote → accept → issue → invoice → pay
   assert.equal(p2.status, 'paid');
   await call('POST', `repair/jobs/${jobId}/deliver`, { receivedBy: 'Customer' });
   assert.equal((await call('GET', `r/repair.job/${jobId}`)).status, 'closed', 'delivered and fully paid closes the job');
-  assert.equal((await call('POST', `repair/jobs/${jobId}/password`)).password, '1234');
   const track = await fetch(`${API}/public/track/${intake.jobs[0].trackToken}`).then((r) => r.json());
   assert.equal(track.status, 'closed');
   const found = await call('GET', `search?q=${encodeURIComponent(`IMEI-${run}`)}`);
   assert.ok(found.length >= 1);
   const scan = await call('GET', `search/scan?code=${encodeURIComponent(intake.jobs[0].number)}`);
   assert.equal(scan[0].entityId, jobId);
-  const byTag = await call('GET', `search/scan?code=${encodeURIComponent(`UNIT-${run}`)}`);
-  assert.ok(byTag.some((h: J) => h.entityId === jobId), 'asset tag resolves to the job');
+  const bySerial = await call('GET', `search/scan?code=${encodeURIComponent(`IMEI-${run}`)}`);
+  assert.ok(bySerial.some((h: J) => h.entityId === jobId), 'the serial resolves to the job');
   ctx.customer = cust;
 });
 
@@ -204,14 +203,13 @@ test('repair: re-diagnosis keeps the earlier findings; the accepted quotation is
   await assert.rejects(call('POST', `repair/quotations/${d2.quotation.id}/invoice`), /already invoiced/);
 });
 
-test('intake lookup: a serial or asset tag seen before fills the unit and its owner; stocked makes are suggested', async () => {
+test('intake lookup: a serial seen before fills the unit and its owner; stocked makes are suggested', async () => {
   const r = await call('GET', `repair/intake-lookup?serial=${encodeURIComponent(`IMEI-${run}`)}`);
   assert.equal(r.found, true);
-  assert.deepEqual([r.unit.productType, r.unit.brand, r.unit.model, r.unit.assetTag, r.unit.frequencyBand], ['Handheld radio', 'Motorola', 'APX 6000', `UNIT-${run}`, 'VHF 136-174 MHz']);
+  assert.deepEqual([r.unit.productType, r.unit.brand, r.unit.model], ['Handheld radio', 'Motorola', 'APX 6000']);
   assert.deepEqual(r.unit.accessories, ['Battery', 'Antenna']);
   assert.equal(r.customer.id, ctx.customer.id);
   assert.ok(r.repairs >= 1);
-  assert.equal((await call('GET', `repair/intake-lookup?serial=UNIT-${run}`)).unit.serial, `IMEI-${run}`, 'asset tag finds the unit too');
   assert.equal((await call('GET', `repair/intake-lookup?serial=NEVER-${run}`)).found, false);
   await call('POST', 'r/inventory.product', { sku: `KNW-${run}`, name: 'Stocked radio', brand: `Kenwood-${run}`, model: 'NX-3220', price: '1000' });
   const o = await call('GET', 'repair/intake-options');

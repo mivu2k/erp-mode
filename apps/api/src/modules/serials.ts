@@ -126,7 +126,7 @@ export class SerialsController {
       this.prisma.serialEvent.findMany({ where: { companyId: c, serial }, orderBy: { at: 'asc' } }),
       this.prisma.stockMovement.findMany({ where: { companyId: c, serial }, orderBy: { at: 'asc' } }),
       can(user, 'gatepass.pass.view') ? this.prisma.gatepassLine.findMany({ where: { serial, gatepass: { companyId: c, deletedAt: null } }, include: { gatepass: true } }) : [],
-      can(user, 'repair.job.view') ? this.prisma.job.findMany({ where: { companyId: c, deletedAt: null, OR: [{ serial }, { assetTag: serial }] }, orderBy: { createdAt: 'asc' } }) : [],
+      can(user, 'repair.job.view') ? this.prisma.job.findMany({ where: { companyId: c, deletedAt: null, serial }, orderBy: { createdAt: 'asc' } }) : [],
     ]);
     const warehouses = new Map((await this.prisma.warehouse.findMany({ where: { companyId: c } })).map((w) => [w.id, w.name]));
     const poIds = moves.filter((m) => m.refType === 'purchase.order' && m.refId).map((m) => m.refId!);
