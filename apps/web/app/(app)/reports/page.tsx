@@ -1,5 +1,6 @@
 'use client';
 import { BarChart, Button, Card, EmptyState, ErrorBox, humanize, Input, KpiCard, Label, PageHeader, Select, Tabs } from '@erp/ui';
+import { Statements } from './Statements';
 import { StandardReports } from './StandardReports';
 import { useSearchParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
@@ -186,9 +187,9 @@ export default function Reports() {
   const [tab, setTab] = useState(useSearchParams().get('tab') === 'builder' && canBuild ? 'builder' : 'standard');
   return (
     <>
-      {tab === 'standard' && <PageHeader title="Reports" subtitle="Standard reports for every module — pick one, set the period, export" />}
+      {tab === 'standard' && <PageHeader title="Reports" subtitle="Every report in one place: statements, and standard reports for each module — pick one, set the period, export" />}
       {canBuild && <Tabs value={tab} onChange={setTab} tabs={[{ key: 'standard', label: 'Standard reports' }, { key: 'builder', label: 'Report builder' }]} />}
-      {tab === 'standard' ? <StandardReports /> : <Builder />}
+      {tab === 'standard' ? <><Statements /><StandardReports /></> : <Builder />}
     </>
   );
 }

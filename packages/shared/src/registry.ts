@@ -224,7 +224,7 @@ export const RESOURCES: ResourceDef[] = [
   },
   { key: 'finance.journal', model: 'JournalEntry', label: 'Journal', title: 'number', subtitle: 'memo', list: ['number', 'date', 'memo', 'sourceType', 'amount'], amountField: 'amount', search: ['number', 'memo'], ops: [], createPath: '/finance/journal/new', printable: true, children: { lines: 'JournalLine' }, refs: { branchId: 'core.branch' } },
   {
-    key: 'finance.cash', model: 'CashTransaction', label: 'Cash In / Transfers', title: 'number', subtitle: 'memo', list: ['number', 'date', 'fromAccountId', 'toAccountId', 'amount', 'memo'],
+    key: 'finance.cash', model: 'CashTransaction', label: 'Bank & Cash Transfers', title: 'number', subtitle: 'memo', list: ['number', 'date', 'fromAccountId', 'toAccountId', 'amount', 'memo'],
     refs: { fromAccountId: 'finance.account', toAccountId: 'finance.account', branchId: 'core.branch' }, number: { field: 'number', docType: 'CV', pattern: 'CV-{BR}-{YY}{MM}-{SEQ:4}' },
     readonly: ['journalId'], ops: ['create'], printable: true,
   },

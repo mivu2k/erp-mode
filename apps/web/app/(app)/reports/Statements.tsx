@@ -1,10 +1,10 @@
 'use client';
-import { Button, Card, Input, Label, PageHeader } from '@erp/ui';
+import { Button, Card, Input, Label } from '@erp/ui';
 import { useState } from 'react';
 import { openDoc, qs } from '@/lib/api';
 
 const REPORTS = [
-  { path: 'finance/trial-balance', label: 'Trial balance', to: true },
+  { path: 'finance/trial-balance', label: 'Trial balance (Finance)', to: true },
   { path: 'finance/advances/aging', label: 'Outstanding advances (aging)' },
   { path: 'inventory/valuation', label: 'Inventory valuation' },
   { path: 'inventory/low-stock', label: 'Low stock' },
@@ -12,12 +12,12 @@ const REPORTS = [
   { path: 'gatepass/overdue', label: 'Overdue returnables & demos' },
 ];
 
-export default function FinanceReports() {
+/** Statements built by their own module (trial balance, aging, valuation…), next to the standard library. */
+export function Statements() {
   const [to, setTo] = useState('');
   return (
     <>
-      <PageHeader title="Financial & operational reports" subtitle="Account ledgers, cash book and statements open from each account, employee, customer or vendor record." />
-      <Card>
+      <Card title={<span>Statements<span className="ms-2 text-xs font-normal text-muted-foreground">Ledgers and party statements open from each account, employee, customer or vendor</span></span>} className="mb-4">
         <div className="mb-4 w-48"><Label htmlFor="to">As of (optional)</Label><Input id="to" type="date" value={to} onChange={(e) => setTo(e.target.value)} /></div>
         <ul className="divide-y divide-border">
           {REPORTS.map((r) => (

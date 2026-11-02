@@ -96,7 +96,7 @@ export default function ChartOfAccountsPage() {
   return (
     <>
       <PageHeader title="Chart of Accounts" subtitle={`${all.length} accounts · balances from all posted journals`}
-        actions={<div className="flex gap-2"><Link href="/finance/reports"><Button variant="outline">Trial balance</Button></Link><Link href="/r/finance.account/new"><Button>New account</Button></Link></div>} />
+        actions={<div className="flex gap-2"><Link href="/reports"><Button variant="outline">Reports</Button></Link><Link href="/r/finance.account/new"><Button>New account</Button></Link></div>} />
       <ErrorBox error={error} />
       <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-5">
         {TYPES.map(([t, l]) => (

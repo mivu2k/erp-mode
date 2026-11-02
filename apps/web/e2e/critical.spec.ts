@@ -769,3 +769,12 @@ test('finance: New journal shows the running balance; Record an expense is in th
   await expect(page.getByRole('heading', { name: 'Record an expense' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Record an expense' })).toBeVisible();
 });
+
+test('finance reports live in Reports; Finance menu has no separate reports or payments log', async ({ page }) => {
+  await page.goto('/reports');
+  await expect(page.getByText('Trial balance (Finance)')).toBeVisible();
+  await page.getByRole('button', { name: 'Finance' }).click();
+  await expect(page.getByRole('link', { name: 'Bank & Cash Transfers' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Financial reports' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Payments', exact: true })).toHaveCount(0);
+});

@@ -45,14 +45,14 @@ function menu(meta: Meta) {
   if (can(meta, 'utilities.connection.view')) add('utilities', '/utilities', 'Tracker');
   if (can(meta, 'payables.due.create')) { add('payables', '/r/payables.due/new?direction=receivable', 'Add receivable'); add('payables', '/r/payables.due/new?direction=payable', 'Add payable'); }
   if (can(meta, 'finance.payment.create')) add('finance', '/finance/expense', 'Record an expense');
-  if (can(meta, 'finance.report.view')) add('finance', '/finance/reports', 'Financial reports');
   // Products and repair spare parts are one item list, split by kind: each gets its own menu entry.
   const href = (k: string) => (k === 'finance.account' ? '/finance/accounts' : k === 'core.masterdata' ? '/admin/lists' : k === 'core.setting' ? '/admin/settings' : k === 'serials.item' ? '/serials' : k === 'inventory.product' ? '/r/inventory.product?kind=product' : `/r/${k}`);
   // Everyone can read master data (dropdown choices); only those who edit it get the menu entry.
   // Fleet logs live on each vehicle's page, and a repair's quotation / invoice / refund / delivery on its job and intake
   // (the dashboards link the full lists), so the menus stay short.
   const viaVehicle = new Set(['fleet.trip', 'fleet.fuel', 'fleet.event', 'fleet.maintenance', 'repair.quotation', 'repair.invoice', 'repair.creditnote', 'repair.delivery',
-    'utilities.site', 'utilities.connection', 'utilities.reading', 'utilities.bill', 'purchase.receipt']);
+    'utilities.site', 'utilities.connection', 'utilities.reading', 'utilities.bill', 'purchase.receipt',
+    'finance.payment']); // payments are the cash book: see Reports › Cash & bank movements, and each account's ledger
   for (const r of meta.resources) if ((r.key !== 'core.masterdata' || can(meta, 'core.masterdata.create')) && !viaVehicle.has(r.key)) add(r.group ?? r.key.split('.')[0], href(r.key), r.label);
   // Spare parts are inventory: their list and the store's parts desk (issue to / receive from repair jobs) live there.
   if (can(meta, 'inventory.product.view')) add('inventory', '/r/inventory.product?kind=part', 'Spare parts');
