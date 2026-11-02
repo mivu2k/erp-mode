@@ -84,7 +84,8 @@ export interface ResourceDef {
   /** Actions on the rows selected in the list (opened/downloaded with ?ids=a,b,c). */
   bulk?: { label: string; path: string; permission?: string }[];
   /** Read-only lists of other records that point at this one, shown on the record page. */
-  related?: { resource: string; field: string; label: string; columns: string[] }[];
+  /** add: show the list even when empty, with a '+ Add' button that opens the form pre-filled with this record. */
+  related?: { resource: string; field: string; label: string; columns: string[]; add?: boolean }[];
   /** Kanban columns (status field). */
   statuses?: string[];
   ops?: ('create' | 'update' | 'delete')[];
@@ -473,6 +474,13 @@ export const RESOURCES: ResourceDef[] = [
   {
     key: 'fleet.vehicle', model: 'Vehicle', label: 'Vehicles', title: 'plate', subtitle: 'model', list: ['plate', 'make', 'model', 'year', 'driverId', 'odometer', 'status'],
     search: ['plate', 'vin', 'engineNo', 'make', 'model'], barcode: 'plate', refs: { driverId: 'hrm.employee', branchId: 'core.branch' }, printable: true,
+    // The vehicle page is the fleet's hub: everything about this vehicle, and adding to it, in one place.
+    related: [
+      { resource: 'fleet.fuel', field: 'vehicleId', label: 'Fuel', columns: ['date', 'liters', 'cost', 'odometer', 'paidById'], add: true },
+      { resource: 'fleet.trip', field: 'vehicleId', label: 'Trips', columns: ['startAt', 'driverId', 'startOdo', 'endOdo', 'purpose'], add: true },
+      { resource: 'fleet.maintenance', field: 'vehicleId', label: 'Maintenance', columns: ['number', 'fault', 'vendorId', 'status', 'createdAt'] },
+      { resource: 'fleet.event', field: 'vehicleId', label: 'Tyres, accidents & fines', columns: ['date', 'type', 'amount', 'details'], add: true },
+    ],
     actions: [
       { name: 'maintenance', label: 'Open maintenance job', path: 'fleet/vehicles/:id/maintenance', fields: { fault: { type: 'text', required: true }, vendorId: { type: 'ref', ref: 'purchase.vendor' } }, permission: 'fleet.maintenance.create' },
       { name: 'cost', label: 'Cost of ownership', path: 'fleet/vehicles/:id/cost', opens: true },

@@ -1,18 +1,24 @@
 'use client';
-import { BarChart, Card, EmptyState, KpiCard, PageHeader } from '@erp/ui';
+import { BarChart, Button, Card, EmptyState, KpiCard, PageHeader } from '@erp/ui';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { useMeta } from '@/lib/meta';
 
 interface D { vehicles: number; inMaintenance: number; dueService: { id: string; plate: string; odometer: number }[]; expiringDocuments: { id: string; type: string; plate?: string; expiryDate: string }[]; expiringLicenses: { id: string; name: string; licenseExpiry: string }[]; fuelEfficiency: { plate?: string; kmPerLitre: number | null; cost: number }[] }
 
 export default function FleetDashboard() {
+  const meta = useMeta();
   const [d, setD] = useState<D | null>(null);
   useEffect(() => { api<D>('fleet/dashboard').then(setD); }, []);
   if (!d) return null;
   return (
     <>
-      <PageHeader title="Fleet dashboard" />
+      <PageHeader title="Fleet dashboard" actions={<Link href="/r/fleet.vehicle"><Button>Vehicles</Button></Link>} />
+      {/* Everything for one vehicle (fuel, trips, maintenance, events) is on its page; the full lists are here. */}
+      <nav aria-label="Fleet logs" className="mb-4 flex flex-wrap gap-2 text-sm">
+        {meta.resources.filter((r) => ['fleet.fuel', 'fleet.trip', 'fleet.maintenance', 'fleet.event'].includes(r.key)).map((r) => <Link key={r.key} href={`/r/${r.key}`} className="rounded-full border border-border px-3 py-1 hover:bg-muted">All {r.label.toLowerCase()}</Link>)}
+      </nav>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard label="Vehicles" value={d.vehicles} />
         <KpiCard label="In maintenance" value={d.inMaintenance} tone={d.inMaintenance ? 'amber' : undefined} />

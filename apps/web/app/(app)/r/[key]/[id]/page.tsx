@@ -35,6 +35,16 @@ export default function RecordPage() {
     if (r?.owner === 'employeeId' && meta.user.employeeId && r.fields.some((f) => f.name === 'employeeId')) d.employeeId = meta.user.employeeId;
     return { ...d, ...Object.fromEntries(search.entries()) };
   });
+  // A record opened pre-filled from a link (e.g. "+ Add" fuel on a vehicle) gets that record's autofill too (odometer…);
+  // values given in the link itself win.
+  useEffect(() => {
+    if (!isNew || !r?.autofill) return;
+    const given = Object.fromEntries(search.entries());
+    for (const [k, rules] of Object.entries(r.autofill)) {
+      if (!given[k]) continue;
+      autofillPatch(rules, r.fields.find((f) => f.name === k)?.ref, given[k], meta).then((patch) => setValues((s) => ({ ...patch, ...s }))).catch(() => {});
+    }
+  }, [isNew, r?.key]); // eslint-disable-line react-hooks/exhaustive-deps
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState('details');
@@ -527,18 +537,20 @@ function Vouchers({ sourceId }: { sourceId: string }) {
 }
 
 /** Read-only list of records that point at this one (e.g. an intake's units, quotations and invoices). */
-function Related({ spec, id }: { spec: { resource: string; field: string; label: string; columns: string[] }; id: string }) {
+function Related({ spec, id }: { spec: { resource: string; field: string; label: string; columns: string[]; add?: boolean }; id: string }) {
   const meta = useMeta();
   const target = meta.resources.find((x) => x.key === spec.resource);
   const [rows, setRows] = useState<Rec[] | null>(null);
   useEffect(() => { api<{ rows: Rec[] }>(`r/${spec.resource}?${qs({ filters: { [spec.field]: id }, pageSize: 100, sort: 'createdAt:asc' })}`).then((d) => setRows(d.rows)).catch(() => setRows([])); }, [spec, id]);
-  if (!target || !rows?.length) return null;
+  const addable = spec.add && target?.can.create;
+  if (!target || !rows || (!rows.length && !addable)) return null;
   // Repair units print right from the row (job card, 80mm slip, unit tag), same as just after intake.
   const jobs = spec.resource === 'repair.job' && target.can.print;
   const fields = new Map<string, FieldMeta>([...target.fields.map((f): [string, FieldMeta] => [f.name, f]), ['createdAt', { name: 'createdAt', type: 'datetime' }]]);
   return (
-    <Card title={`${spec.label} (${rows.length})`}>
-      <div className="overflow-x-auto">
+    <Card title={`${spec.label} (${rows.length})`} actions={addable ? <Link href={`/r/${spec.resource}/new?${spec.field}=${id}`}><Button size="sm" variant="outline">+ Add</Button></Link> : undefined}>
+      {!rows.length && <EmptyState title="None yet" />}
+      {rows.length > 0 && <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="text-xs uppercase tracking-wide text-muted-foreground">
             <tr>{spec.columns.map((c) => <th key={c} className="px-2 py-1.5 text-start font-medium">{humanize(c)}</th>)}{jobs && <th className="px-2 py-1.5 text-end font-medium">Print</th>}</tr>
@@ -564,7 +576,7 @@ function Related({ spec, id }: { spec: { resource: string; field: string; label:
             ))}
           </tbody>
         </table>
-      </div>
+      </div>}
     </Card>
   );
 }

@@ -713,3 +713,16 @@ test('attendance day: admin can delete it', async ({ page, request }) => {
   await page.locator('summary', { hasText: 'More' }).click();
   await expect(page.getByRole('button', { name: 'Delete' })).toBeVisible();
 });
+
+test('fleet: the vehicle page is the hub — its logs, and + Add pre-fills the vehicle', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const v = await (await request.post('/api/r/fleet.vehicle', { headers: { Authorization: `Bearer ${accessToken}` }, data: { plate: `LEA-${run}`, make: 'Toyota', model: 'Hilux', odometer: 1200 } })).json();
+  await page.goto(`/r/fleet.vehicle/${v.id}`);
+  for (const t of ['Fuel (0)', 'Trips (0)', 'Tyres, accidents & fines (0)']) await expect(page.getByText(t)).toBeVisible();
+  await page.locator('section', { hasText: 'Fuel (0)' }).getByRole('button', { name: '+ Add' }).click();
+  await expect(page).toHaveURL(new RegExp(`/r/fleet.fuel/new\\?vehicleId=${v.id}`));
+  await expect(page.getByLabel('Vehicle')).toHaveValue(`LEA-${run}`);
+  await expect(page.getByLabel('Odometer')).toHaveValue('1200', { timeout: 5000 });
+  await page.goto('/fleet/dashboard');
+  await expect(page.getByRole('link', { name: 'All fuel logs' })).toBeVisible();
+});
