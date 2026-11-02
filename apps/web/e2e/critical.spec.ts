@@ -683,8 +683,8 @@ test('workflow editor: document, amount rule, role step — no JSON', async ({ p
   await page.getByLabel('Name', { exact: true }).fill(`Big POs ${run}`);
   await page.getByLabel('Document').selectOption({ label: 'Purchase Orders' });
   await page.getByLabel('Only when amount is at least').fill('500000');
-  await page.getByLabel('Step 1 name').fill('Director');
-  await page.getByLabel('Who approves').selectOption('role');
+  await page.getByLabel('Approver').selectOption('role');
+  await expect(page.getByText('anyone whose role has Approve rights')).toBeVisible();
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page).toHaveURL(/\/admin\/workflows\/(?!new)/);
   const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
@@ -692,7 +692,8 @@ test('workflow editor: document, amount rule, role step — no JSON', async ({ p
   const wf = await (await request.get(`/api/r/core.workflow/${id}`, { headers: { Authorization: `Bearer ${accessToken}` } })).json();
   expect(wf.resource).toBe('purchase.order');
   expect(wf.conditions).toEqual({ minAmount: 500000 });
-  expect(wf.steps[0]).toMatchObject({ name: 'Director', approverType: 'role' });
+  expect(wf.steps).toHaveLength(1);
+  expect(wf.steps[0]).toMatchObject({ approverType: 'role' });
   await request.delete(`/api/r/core.workflow/${id}`, { headers: { Authorization: `Bearer ${accessToken}` } });
 });
 

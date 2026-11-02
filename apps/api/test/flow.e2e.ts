@@ -1,4 +1,3 @@
-import { execSync } from 'node:child_process';
 /**
  * End-to-end business flow against a running API + seeded DB.
  *   API_URL=http://localhost:4000/api node --import tsx --test apps/api/test/flow.e2e.ts
@@ -549,49 +548,54 @@ test('PDF rendering (record + report)', async () => {
   assert.equal(Buffer.from(await tb.arrayBuffer()).subarray(0, 4).toString(), '%PDF');
 });
 
-test('parallel approval + delegation + escalation config', async () => {
+test('one-step approval: named approver or anyone with Approve rights decides; delegation; plain history', async () => {
   const roles = (await call('GET', 'r/core.role?pageSize=100')).rows as J[];
   const acct = roles.find((r) => r.name === 'Accountant')!;
   const u1 = await call('POST', 'r/core.user', { name: `Acc1 ${run}`, email: `acc1.${run}@erp.local`, password: 'Secret123' });
-  const u2 = await call('POST', 'r/core.user', { name: `Acc2 ${run}`, email: `acc2.${run}@erp.local`, password: 'Secret123' });
   const cover = await call('POST', 'r/core.user', { name: `Cover ${run}`, email: `cover.${run}@erp.local`, password: 'Secret123' });
-  for (const u of [u1, u2]) await call('POST', `users/${u.id}/roles`, { roleIds: [acct.id] });
-  await call('POST', 'r/core.workflow', { name: `Dual sign ${run}`, resource: 'finance.cash', priority: 99, steps: [{ name: 'Both accountants', approverType: 'role', approverId: acct.id, mode: 'all', escalateAfterHours: 24, escalateToRoleId: acct.id }] }).catch(() => null);
-  // workflow on a non-workflow resource is ignored; use a claim instead
-  const wf = await call('POST', 'r/core.workflow', { name: `Dual sign claim ${run}`, resource: 'finance.claim', priority: 99, conditions: { equals: { notes: `dual ${run}` } }, steps: [{ name: 'Both accountants', approverType: 'role', approverId: acct.id, mode: 'all' }] });
-
+  const nobody = await call('POST', 'r/core.user', { name: `Nobody ${run}`, email: `nobody.${run}@erp.local`, password: 'Secret123' });
+  await call('POST', `users/${u1.id}/roles`, { roleIds: [acct.id] });
+  // A role that may approve claims but isn't named in the workflow.
+  const approver = await call('POST', 'r/core.role', { name: `Claim approver ${run}` });
+  await call('PUT', `roles/${approver.id}/permissions`, ['finance.claim.view', 'finance.claim.approve'].map((key) => ({ key, scope: 'all' })));
+  const boss = await call('POST', 'r/core.user', { name: `Boss ${run}`, email: `boss.${run}@erp.local`, password: 'Secret123' });
+  await call('POST', `users/${boss.id}/roles`, { roleIds: [approver.id] });
+  const wf = await call('POST', 'r/core.workflow', { name: `Single ${run}`, resource: 'finance.claim', priority: 99, conditions: { equals: { notes: `single ${run}` } }, steps: [{ name: 'Accounts', approverType: 'role', approverId: acct.id }] });
   const loginAs = async (email: string) => (await call('POST', 'auth/login', { login: email, password: 'Secret123' })).accessToken as string;
   const admin = token;
-  // Only accountants in this company would block; restrict role to our two users by removing others.
-  const holders = (await call('GET', `r/core.user?pageSize=100`)).rows as J[];
-  for (const h of holders) {
-    if (h.id === u1.id || h.id === u2.id) continue;
-    const r = await call('GET', `users/${h.id}/roles`) as unknown as string[];
-    if (r.includes(acct.id)) await call('POST', `users/${h.id}/roles`, { roleIds: r.filter((x) => x !== acct.id) });
+  const submit = async () => {
+    const claim = await call('POST', 'r/finance.claim', { employeeId: ctx.emp.id, mode: 'direct', date: '2026-09-10', notes: `single ${run}`, lines: [{ date: '2026-09-10', headId: ctx.fuelHead, amount: '500' }] });
+    return { claim, sub: await call('POST', `r/finance.claim/${claim.id}/submit`) };
+  };
+  try {
+    // 1. The named approver's single approval is final.
+    const a = await submit();
+    assert.equal(a.sub.status, 'pending');
+    token = await loginAs(`acc1.${run}@erp.local`);
+    assert.equal((await call('POST', `approvals/${a.sub.requestId}/approve`, { comment: 'ok' })).status, 'approved', 'one approval decides it');
+    token = admin;
+    const hist = await call('GET', `r/finance.claim/${a.claim.id}/approvals`);
+    assert.deepEqual(hist[0].actions.map((x: J) => x.text), ['Submitted by Super Admin', `Approved by Acc1 ${run}`]);
+    // 2. Someone whose role may approve claims decides too (and sees it in the inbox); a user without rights can't.
+    const b = await submit();
+    assert.match((await call('GET', `r/finance.claim/${b.claim.id}/approvals`))[0].waitingFor, /or anyone with Approve rights/);
+    token = await loginAs(`nobody.${run}@erp.local`);
+    await assert.rejects(call('POST', `approvals/${b.sub.requestId}/approve`, {}), /403/);
+    token = await loginAs(`boss.${run}@erp.local`);
+    assert.ok((await call('GET', 'approvals/inbox')).some((r: J) => r.id === b.sub.requestId), 'in the inbox of anyone who may approve');
+    assert.equal((await call('POST', `approvals/${b.sub.requestId}/reject`, { comment: 'Receipt missing' })).status, 'rejected');
+    // 3. A delegate covers for the named approver.
+    token = await loginAs(`acc1.${run}@erp.local`);
+    await call('POST', 'auth/preferences', { delegateToId: cover.id, delegateUntil: new Date(Date.now() + 86_400_000).toISOString() });
+    token = admin;
+    const c = await submit();
+    token = await loginAs(`cover.${run}@erp.local`);
+    assert.ok((await call('GET', 'approvals/inbox')).some((r: J) => r.id === c.sub.requestId), 'delegate sees it');
+    assert.equal((await call('POST', `approvals/${c.sub.requestId}/approve`, {})).status, 'approved');
+  } finally {
+    token = admin;
+    await call('DELETE', `r/core.workflow/${wf.id}`);
   }
-
-  token = await loginAs(`acc2.${run}@erp.local`);
-  await call('POST', 'auth/preferences', { delegateToId: cover.id, delegateUntil: new Date(Date.now() + 86_400_000).toISOString() });
-  token = admin;
-
-  const claim = await call('POST', 'r/finance.claim', { employeeId: ctx.emp.id, mode: 'direct', date: '2026-09-10', notes: `dual ${run}`, lines: [{ date: '2026-09-10', headId: ctx.fuelHead, amount: '500' }] });
-  const sub = await call('POST', `r/finance.claim/${claim.id}/submit`);
-  assert.equal(sub.status, 'pending');
-
-  token = await loginAs(`acc1.${run}@erp.local`);
-  const first = await call('POST', `approvals/${sub.requestId}/approve`, {});
-  assert.equal(first.status, 'pending', 'still waiting for the second accountant');
-  assert.equal((await call('GET', 'approvals/inbox')).filter((r: J) => r.id === sub.requestId).length, 0, 'acc1 already signed');
-
-  token = await loginAs(`cover.${run}@erp.local`); // delegate of acc2
-  assert.equal((await call('GET', 'approvals/inbox')).filter((r: J) => r.id === sub.requestId).length, 1);
-  // A request created before approvers were recorded is routed on the next inbox read.
-  execSync(`mysql -h127.0.0.1 -P3307 -uerp -perp erp -e "DELETE FROM ApprovalAssignee WHERE requestId='${sub.requestId}'" 2>/dev/null`);
-  assert.equal((await call('GET', 'approvals/inbox')).filter((r: J) => r.id === sub.requestId).length, 1, 'legacy request re-routed');
-  const second = await call('POST', `approvals/${sub.requestId}/approve`, {});
-  assert.equal(second.status, 'approved');
-  token = admin;
-  await call('DELETE', `r/core.workflow/${wf.id}`);
 });
 
 test('live notifications over SSE', async () => {
@@ -1006,7 +1010,7 @@ test('employee types are a managed list; Director is a type that sets the direct
   assert.equal((await call('PATCH', `r/hrm.employee/${dir.id}`, { type: 'permanent' })).isDirector, false, 'changing type clears it');
 });
 
-test('two-step approval: an approval admin approves it in one go (steps skipped, recorded)', async () => {
+test('an approval admin decides alone, even on a workflow saved with old extra steps', async () => {
   const roles = (await call('GET', 'r/core.role?pageSize=100')).rows as J[];
   const acct = roles.find((r) => r.name === 'Accountant')!;
   const hr = roles.find((r) => r.name === 'HR Manager')!;
@@ -1015,9 +1019,9 @@ test('two-step approval: an approval admin approves it in one go (steps skipped,
     const adv = await call('POST', 'r/finance.advance', { employeeId: ctx.emp.id, kind: 'expense', amount: '10', purpose: `two ${run}` });
     const sub = await call('POST', `r/finance.advance/${adv.id}/submit`);
     const r = await call('POST', `approvals/${sub.requestId}/approve`, {});
-    assert.equal(r.status, 'approved', 'one admin approval finishes both steps');
-    const hist = await call("GET", `r/finance.advance/${adv.id}/approvals`);
-    assert.match(hist.at(-1).actions.at(-1).comment, /admin approval — steps 2–2 skipped/);
+    assert.equal(r.status, 'approved', 'one approval decides it');
+    const hist = await call('GET', `r/finance.advance/${adv.id}/approvals`);
+    assert.equal(hist.at(-1).actions.at(-1).text, 'Approved by Super Admin');
   } finally { await call('DELETE', `r/core.workflow/${wf.id}`); }
 });
 

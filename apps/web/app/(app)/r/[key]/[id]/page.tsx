@@ -458,17 +458,18 @@ function Activity({ resource, id }: { resource: string; id: string }) {
   );
 }
 
-interface Req { id: string; status: string; step: number; createdAt: string; actions: { action: string; userId: string; comment?: string; createdAt: string; step: number }[] }
+interface Req { id: string; status: string; step: number; createdAt: string; waitingFor?: string | null; actions: { action: string; text?: string; userId: string; comment?: string; createdAt: string; step: number }[] }
 
 function Approvals({ resource, id }: { resource: string; id: string }) {
   const [reqs, setReqs] = useState<Req[]>([]);
-  useEffect(() => { api<Req[]>(`r/${resource}/${id}/approvals`).then(setReqs).catch(() => {}); }, [resource, id]);
+  useEffect(() => { api<typeof reqs>(`r/${resource}/${id}/approvals`).then(setReqs).catch(() => {}); }, [resource, id]);
   if (!reqs.length) return <Card><EmptyState title="Not submitted yet" /></Card>;
   return (
     <div className="space-y-3">
       {reqs.map((q) => (
         <Card key={q.id} title={<span className="flex items-center gap-2">Request {new Date(q.createdAt).toLocaleDateString()} <StatusBadge status={q.status} /></span>}>
-          <Timeline items={q.actions.map((a) => ({ at: a.createdAt, title: `Step ${a.step + 1}: ${a.action}`, body: a.comment }))} />
+          {q.waitingFor && <p className="mb-3 rounded-md px-3 py-2 text-sm" style={{ color: 'var(--tone-amber)', background: 'var(--tone-amber-bg)' }}>Waiting for: {q.waitingFor}</p>}
+          <Timeline items={q.actions.map((a) => ({ at: a.createdAt, title: a.text ?? a.action, body: a.comment }))} />
         </Card>
       ))}
     </div>

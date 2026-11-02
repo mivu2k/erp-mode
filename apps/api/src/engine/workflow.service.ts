@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { RESOURCES } from '@erp/shared';
 import { Prisma } from '@prisma/client';
 import type { Tx } from '../platform/audit.service';
 import { NotifyService } from '../platform/notify.service';
@@ -12,17 +13,8 @@ export interface Step {
   name: string;
   approverType: 'role' | 'user' | 'manager' | 'department_head';
   approverId?: string;
-  /** any (default): one approval moves on; all: every approver must approve (parallel sign-off). */
-  mode?: 'any' | 'all';
   escalateAfterHours?: number;
   escalateToRoleId?: string;
-}
-
-/** Is a step complete? Escalation approvers can always close it alone. Delegates count for their delegator. */
-export function stepComplete(step: Step, base: string[], approvedBy: Set<string>, delegates: Map<string, string>, escalationIds: string[]): boolean {
-  if (step.mode !== 'all') return approvedBy.size > 0;
-  if (escalationIds.some((id) => approvedBy.has(id))) return true;
-  return base.length > 0 && base.every((id) => approvedBy.has(id) || (delegates.has(id) && approvedBy.has(delegates.get(id)!)));
 }
 
 export const escalated = (step: Step | undefined, stepStartedAt: Date, now = Date.now()) =>
@@ -86,38 +78,27 @@ export class WorkflowService {
       const req = await tx.approvalRequest.findFirst({ where: { id: requestId, companyId: user.companyId, status: 'pending' } });
       if (!req) throw new NotFoundException();
       const wf = await tx.workflowDefinition.findUniqueOrThrow({ where: { id: req.definitionId } });
-      const steps = wf.steps as unknown as Step[];
-      const step = steps[req.step];
-      const who = await this.resolve(tx, req, step);
+      const who = await this.resolve(tx, req, (wf.steps as unknown as Step[])[req.step]);
       const admin = can(user, 'core.approval.manage');
-      if (!who.all.includes(user.id) && !admin) throw new ForbiddenException('You are not an approver for this step');
-      // Maker-checker: whoever submitted can't approve it (admins with approval override excepted).
-      if (action === 'approve' && req.requestedById === user.id && !admin) throw new ForbiddenException('You cannot approve your own request');
-
-      // An approval admin's approval is final: the remaining steps are skipped (and the trail says so).
-      const skipped = action === 'approve' && admin && req.step + 1 < steps.length ? ` [admin approval — steps ${req.step + 2}–${steps.length} skipped]` : '';
-      await tx.approvalAction.create({ data: { requestId, step: req.step, userId: user.id, action, comment: skipped ? `${comment ?? ''}${skipped}`.trim() : comment } });
+      // One step: the named approver, or anyone whose role may approve this kind of document, decides it.
+      if (!who.all.includes(user.id) && !admin && !can(user, `${req.resource}.approve`)) {
+        throw new ForbiddenException(`Only ${wf.name ? `the "${wf.name}" approver` : 'the named approver'} or someone with Approve rights for this document can decide it`);
+      }
+      // Maker-checker: whoever submitted can't approve it (approval admins excepted).
+      if (action === 'approve' && req.requestedById === user.id && !admin) throw new ForbiddenException("You can't approve your own request — someone else with Approve rights must");
+      await tx.approvalAction.create({ data: { requestId, step: req.step, userId: user.id, action, comment } });
       if (action === 'comment') return { status: 'pending' };
 
       const m = this.resources.meta(req.resource);
       const ctx = { tx, user, def: m.def };
       const link = `/r/${req.resource}/${req.recordId}`;
-      if (action === 'approve' && !admin) {
-        const approvedBy = new Set((await tx.approvalAction.findMany({ where: { requestId, step: req.step, action: 'approve' } })).map((a) => a.userId));
-        if (!stepComplete(step, who.base, approvedBy, who.delegates, who.escalation)) return { status: 'pending', step: req.step, waitingFor: who.base.filter((id) => !approvedBy.has(id)).length };
-      }
-      if (action === 'approve' && req.step + 1 < steps.length && !admin) {
-        await tx.approvalRequest.update({ where: { id: requestId }, data: { step: req.step + 1 } });
-        await this.routeStep(tx, requestId);
-        return { status: 'pending', step: req.step + 1 };
-      }
       const final = { approve: 'approved', reject: 'rejected', return: 'returned' }[action];
       await tx.approvalRequest.update({ where: { id: requestId }, data: { status: final } });
       await tx.approvalAssignee.deleteMany({ where: { requestId } });
       const rec = await this.resources.setStatus(tx, user, req.resource, req.recordId, final);
       if (final === 'approved') await this.hooks.run(req.resource, 'onApproved', ctx, rec);
       if (final === 'rejected') await this.hooks.run(req.resource, 'onRejected', ctx, rec);
-      await this.notify.send(user.companyId, [req.requestedById], { title: `${req.title} was ${final}`, body: comment, link }, tx);
+      await this.notify.send(user.companyId, [req.requestedById], { title: `${req.title} was ${final} by ${user.name}`, body: comment, link }, tx);
       return { status: final };
     });
   }
@@ -131,21 +112,19 @@ export class WorkflowService {
     await this.routeLegacy(user.companyId);
     const delegators = (await this.prisma.user.findMany({ where: { delegateToId: user.id, delegateUntil: { gt: new Date() } }, select: { id: true } })).map((u) => u.id);
     const pending = await this.prisma.approvalRequest.findMany({
-      where: { companyId: user.companyId, status: 'pending', ...(admin ? {} : { requestedById: { not: user.id }, assignees: { some: { userId: { in: [user.id, ...delegators] } } } }) },
+      where: {
+        companyId: user.companyId, status: 'pending',
+        // Named approvers (or their delegators), plus everyone whose role may approve that kind of document.
+        ...(admin ? {} : { requestedById: { not: user.id }, OR: [{ assignees: { some: { userId: { in: [user.id, ...delegators] } } } }, { resource: { in: RESOURCES.filter((r) => r.workflow && can(user, `${r.key}.approve`)).map((r) => r.key) } }] }),
+      },
       orderBy: { createdAt: 'asc' },
     });
     if (!pending.length) return [];
-    const [defs, mine] = await Promise.all([
-      this.prisma.workflowDefinition.findMany({ where: { id: { in: [...new Set(pending.map((p) => p.definitionId))] } } }),
-      this.prisma.approvalAction.findMany({ where: { requestId: { in: pending.map((p) => p.id) }, userId: user.id, action: 'approve' }, select: { requestId: true, step: true } }),
-    ]);
+    const defs = await this.prisma.workflowDefinition.findMany({ where: { id: { in: [...new Set(pending.map((p) => p.definitionId))] } } });
     const def = new Map(defs.map((d) => [d.id, d.steps as unknown as Step[]]));
-    const approvedByMe = new Set(mine.map((a) => `${a.requestId}:${a.step}`));
-    return this.context(user, pending.flatMap((r) => {
+    return this.context(user, pending.map((r) => {
       const step = def.get(r.definitionId)?.[r.step];
-      // In an "everyone approves" step, what I've already approved leaves my inbox while others still decide.
-      if (!step || (step.mode === 'all' && approvedByMe.has(`${r.id}:${r.step}`))) return [];
-      return [{ ...r, stepName: step.name, escalated: escalated(step, r.updatedAt) }];
+      return { ...r, stepName: step?.name ?? 'Approval', escalated: escalated(step, r.updatedAt) };
     }));
   }
 
@@ -185,7 +164,15 @@ export class WorkflowService {
 
   async history(user: AuthUser, key: string, id: string) {
     assertCan(user, `${key}.view`);
-    return this.prisma.approvalRequest.findMany({ where: { companyId: user.companyId, resource: key, recordId: id }, include: { actions: { orderBy: { createdAt: 'asc' } } }, orderBy: { createdAt: 'asc' } });
+    const reqs = await this.prisma.approvalRequest.findMany({ where: { companyId: user.companyId, resource: key, recordId: id }, include: { actions: { orderBy: { createdAt: 'asc' } }, assignees: true }, orderBy: { createdAt: 'asc' } });
+    const names = new Map((await this.prisma.user.findMany({ where: { id: { in: [...new Set(reqs.flatMap((r) => [...r.actions.map((a) => a.userId), ...r.assignees.map((x) => x.userId)]))] } }, select: { id: true, name: true } })).map((u) => [u.id, u.name]));
+    const VERB: Record<string, string> = { submit: 'Submitted', approve: 'Approved', reject: 'Rejected', return: 'Sent back', comment: 'Commented' };
+    // In words: who did what, and — while pending — who can decide.
+    return reqs.map(({ assignees, ...r }) => ({
+      ...r,
+      actions: r.actions.map((a) => ({ ...a, text: `${VERB[a.action] ?? a.action} by ${names.get(a.userId) ?? 'someone'}` })),
+      waitingFor: r.status === 'pending' ? `${[...new Set(assignees.map((x) => names.get(x.userId)).filter(Boolean))].join(', ') || 'the approver'}, or anyone with Approve rights for this document` : null,
+    }));
   }
 
   /** Everyone who may act now: base approvers, their active delegates, and the escalation role once overdue. */

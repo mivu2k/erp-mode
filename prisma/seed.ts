@@ -91,7 +91,7 @@ async function main() {
   // ─── Approval chains added after first release (idempotent by name) ───
   const ensureWf = async (resource: string, name: string, steps: object[], conditions: object | null = null, priority = 0) => {
     if (await prisma.workflowDefinition.findFirst({ where: { companyId: c, resource, name } })) return;
-    await prisma.workflowDefinition.create({ data: { companyId: c, resource, name, steps: steps as Prisma.InputJsonValue, conditions: conditions ?? Prisma.JsonNull, priority } });
+    await prisma.workflowDefinition.create({ data: { companyId: c, resource, name, steps: steps.slice(0, 1) as Prisma.InputJsonValue, conditions: conditions ?? Prisma.JsonNull, priority } }); // one step: one decision
   };
   await ensureWf('finance.loan', 'Salary advance / loan', [{ name: 'Manager', approverType: 'manager' }, { name: 'HR', approverType: 'role', approverId: roleIds['HR Manager'] }, { name: 'Accounts', approverType: 'role', approverId: roleIds.Accountant }]);
   await ensureWf('finance.voucher', 'Payment release (large)', [{ name: 'Accounts review', approverType: 'role', approverId: roleIds.Accountant }, { name: 'Director release', approverType: 'role', approverId: roleIds.Director }], { minAmount: 50000 }, 10);
@@ -171,7 +171,7 @@ async function main() {
 
   // ─── Default workflows (edit in Admin › Workflows) ───
   const wf = (resource: string, name: string, steps: object[], conditions: object | null = null, priority = 0) =>
-    prisma.workflowDefinition.create({ data: { companyId: c, resource, name, steps: steps as Prisma.InputJsonValue, conditions: conditions ?? Prisma.JsonNull, priority } });
+    prisma.workflowDefinition.create({ data: { companyId: c, resource, name, steps: steps.slice(0, 1) as Prisma.InputJsonValue, conditions: conditions ?? Prisma.JsonNull, priority } }); // one step: one decision
   await wf('finance.advance', 'Large advance', [{ name: 'Manager', approverType: 'manager' }, { name: 'Director', approverType: 'role', approverId: roleIds.Director }], { minAmount: 50000 }, 10);
   await wf('finance.advance', 'Advance', [{ name: 'Accounts', approverType: 'role', approverId: roleIds.Accountant }]);
   await wf('finance.claim', 'Expense claim', [{ name: 'Manager', approverType: 'manager' }, { name: 'Accounts check', approverType: 'role', approverId: roleIds.Accountant }]);
