@@ -745,3 +745,13 @@ test('intake: no separate quotation — quoting happens per unit in its job', as
   await expect(page.getByText('Units (1)')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Quotation for all units' })).toHaveCount(0);
 });
+
+test('purchase order: goods received and vendor bills on the PO; Goods Receipts not in the menu', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const po = (await (await request.get('/api/r/purchase.order?pageSize=1&sort=createdAt:asc', { headers: { Authorization: `Bearer ${accessToken}` } })).json()).rows[0];
+  await page.goto(`/r/purchase.order/${po.id}`);
+  await expect(page.getByText(/^Vendor bills \(\d+\)$/)).toBeVisible();
+  await page.locator('section', { hasText: /Vendor bills \(/ }).getByRole('button', { name: '+ Add' }).click();
+  await expect(page).toHaveURL(new RegExp(`/r/purchase.bill/new\\?poId=${po.id}`));
+  await expect(page.getByRole('link', { name: 'Goods Receipts', exact: true })).toHaveCount(0);
+});

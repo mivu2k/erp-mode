@@ -159,6 +159,21 @@ export class InventoryController {
       Object.assign(data, { subtotal: fromMinor(t.subtotal), tax: fromMinor(t.tax), total: fromMinor(t.total) });
     };
     hooks.on('purchase.order', { beforeCreate: poTotals, beforeUpdate: poTotals });
+    // A vendor bill is the vendor's invoice for goods received on a PO (the GRN already booked the payable).
+    // Without a PO nothing would be owed in the books, so those go through P&R › Add payable instead.
+    const billFromPo = async ({ tx, user }: HookCtx, data: Row, before?: Row) => {
+      const poId = String(data.poId ?? before?.poId ?? '');
+      if (!poId) throw new BadRequestException('Pick the purchase order this bill is for (bills without a PO: P & R › Add payable)');
+      const po = await tx.purchaseOrder.findFirst({ where: { id: poId, companyId: user.companyId }, include: { lines: true } });
+      if (!po) throw new BadRequestException('Unknown purchase order');
+      data.vendorId = po.vendorId;
+      const received = po.lines.reduce((s, l) => s + Math.round((Number(l.receivedQty) - Number(l.returnedQty)) * toMinor(l.price)), 0);
+      const billed = (await tx.vendorBill.findMany({ where: { poId, deletedAt: null, ...(before ? { id: { not: String(before.id) } } : {}) }, select: { amount: true } })).reduce((s, b) => s + toMinor(b.amount), 0);
+      const open = received - billed;
+      if (data.amount == null || data.amount === '' || Number(data.amount) === 0) data.amount = fromMinor(Math.max(open, 0));
+      if (toMinor(data.amount as string) > open) throw new BadRequestException(`Only ${fromMinor(Math.max(open, 0))} of ${po.number} is received and not yet billed`);
+    };
+    hooks.on('purchase.bill', { beforeCreate: (c, d) => billFromPo(c, d), beforeUpdate: (c, d, b) => billFromPo(c, d, b) });
   }
 
   @Post('inventory/adjustments/:id/post')

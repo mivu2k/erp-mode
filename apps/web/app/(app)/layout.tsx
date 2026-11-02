@@ -51,7 +51,7 @@ function menu(meta: Meta) {
   // Fleet logs live on each vehicle's page, and a repair's quotation / invoice / refund / delivery on its job and intake
   // (the dashboards link the full lists), so the menus stay short.
   const viaVehicle = new Set(['fleet.trip', 'fleet.fuel', 'fleet.event', 'fleet.maintenance', 'repair.quotation', 'repair.invoice', 'repair.creditnote', 'repair.delivery',
-    'utilities.site', 'utilities.connection', 'utilities.reading', 'utilities.bill']);
+    'utilities.site', 'utilities.connection', 'utilities.reading', 'utilities.bill', 'purchase.receipt']);
   for (const r of meta.resources) if ((r.key !== 'core.masterdata' || can(meta, 'core.masterdata.create')) && !viaVehicle.has(r.key)) add(r.group ?? r.key.split('.')[0], href(r.key), r.label);
   // Spare parts are inventory: their list and the store's parts desk (issue to / receive from repair jobs) live there.
   if (can(meta, 'inventory.product.view')) add('inventory', '/r/inventory.product?kind=part', 'Spare parts');

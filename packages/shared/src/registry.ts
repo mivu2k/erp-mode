@@ -357,6 +357,11 @@ export const RESOURCES: ResourceDef[] = [
     key: 'purchase.order', model: 'PurchaseOrder', label: 'Purchase Orders', title: 'number', list: ['number', 'vendorId', 'date', 'total', 'status'], search: ['number'],
     refs: { vendorId: 'purchase.vendor' }, number: { field: 'number', docType: 'PO', pattern: 'PO-{BR}-{YYYY}-{SEQ:5}' }, workflow: true, amountField: 'total',
     children: { lines: 'PurchaseOrderLine' }, readonly: ['status', 'subtotal', 'tax', 'total'], editableWhen: EDIT_DRAFT, printable: true,
+    // The PO is the purchase's hub: what arrived against it, and the vendor's bills for it.
+    related: [
+      { resource: 'purchase.receipt', field: 'poId', label: 'Goods received', columns: ['number', 'warehouseId', 'createdAt'] },
+      { resource: 'purchase.bill', field: 'poId', label: 'Vendor bills', columns: ['number', 'vendorRef', 'date', 'dueDate', 'amount', 'paid', 'status'], add: true },
+    ],
     actions: [
       {
         name: 'receive', label: 'Receive goods (GRN)', path: 'purchase/orders/:id/receive', when: ['approved', 'partially_received'], permission: 'purchase.receipt.create',
@@ -386,7 +391,8 @@ export const RESOURCES: ResourceDef[] = [
   {
     autofill: { poId: { vendorId: 'vendorId', amount: 'total' } },
     key: 'purchase.bill', model: 'VendorBill', label: 'Vendor Bills', title: 'number', subtitle: 'vendorRef', list: ['number', 'vendorId', 'date', 'dueDate', 'amount', 'paid', 'status'],
-    refs: { vendorId: 'purchase.vendor', poId: 'purchase.order' }, number: { field: 'number', docType: 'BILL', pattern: 'BILL-{YYYY}-{SEQ:5}' }, readonly: ['paid', 'status'], editableWhen: ['open'],
+    refs: { vendorId: 'purchase.vendor', poId: 'purchase.order' }, number: { field: 'number', docType: 'BILL', pattern: 'BILL-{YYYY}-{SEQ:5}' }, readonly: ['vendorId', 'paid', 'status'], editableWhen: ['open'],
+    labels: { poId: 'Purchase order', vendorRef: "Vendor's invoice no.", amount: 'Amount (blank = received, not yet billed)' },
     actions: [{ name: 'pay', label: 'Pay', path: 'purchase/bills/:id/pay', when: ['open', 'partially_paid'], fields: { amount: { type: 'money', required: true, from: 'amount-paid' }, accountId: { type: 'ref', ref: 'finance.account', required: true, filters: { $or: [{ isCash: true }, { isBank: true }] } }, methodId: { type: 'ref', ref: 'core.masterdata' } }, permission: 'finance.payment.create' }],
   },
 

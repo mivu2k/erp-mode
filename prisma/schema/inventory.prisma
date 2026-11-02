@@ -262,7 +262,7 @@ model VendorBill {
   poId        String?
   date        DateTime  @db.Date
   dueDate     DateTime? @db.Date
-  amount      Decimal   @db.Decimal(18, 2)
+  amount      Decimal   @default(0) @db.Decimal(18, 2)
   paid        Decimal   @default(0) @db.Decimal(18, 2)
   status      String    @default("open") // open | partially_paid | paid
   custom      Json?

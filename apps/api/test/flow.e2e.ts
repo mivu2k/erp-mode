@@ -113,6 +113,13 @@ test('Inventory + Purchase: PO → GRN with serials → weighted average', async
   assert.equal(Number(lvl.qty), 8);
   assert.equal(Number(lvl.avgCost), 5750);
   assert.equal((await call('GET', `r/purchase.order/${po.id}`)).status, 'partially_received');
+  // Vendor bills belong to a PO (the GRN booked the payable); amount defaults to received-but-unbilled and can't exceed it.
+  await assert.rejects(call('POST', 'r/purchase.bill', { vendorId: vendor.id, date: '2026-09-06', amount: '1000' }), /Pick the purchase order/);
+  const bill = await call('POST', 'r/purchase.bill', { poId: po.id, date: '2026-09-06', vendorRef: `INV-${run}` });
+  assert.equal(Number(bill.amount), 220000, '4 × 5,000 + 2 × 100,000 received');
+  assert.equal(bill.vendorId, vendor.id, 'vendor comes from the PO');
+  await assert.rejects(call('POST', 'r/purchase.bill', { poId: po.id, date: '2026-09-07', amount: '1' }), /received and not yet billed/);
+  assert.equal(Number((await call('POST', `purchase/bills/${bill.id}/pay`, { amount: 220000, accountId: ctx.bank })).paid), 220000);
   ctx = { ...ctx, screen, phone };
 });
 
