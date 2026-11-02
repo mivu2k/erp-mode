@@ -778,3 +778,16 @@ test('finance reports live in Reports; Finance menu has no separate reports or p
   await expect(page.getByRole('link', { name: 'Financial reports' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: 'Payments', exact: true })).toHaveCount(0);
 });
+
+test('HR: the employee page is the hub; payroll page lists runs; shorter menu', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const emp = await (await request.post('/api/r/hrm.employee', { headers: { Authorization: `Bearer ${accessToken}` }, data: { name: `Hub ${run}` } })).json();
+  await page.goto(`/r/hrm.employee/${emp.id}`);
+  for (const t of ['Leave (0)', 'Salary structure (0)', 'Fines (0)', 'Lifecycle events (0)']) await expect(page.getByText(t)).toBeVisible();
+  await page.locator('section', { hasText: 'Fines (0)' }).getByRole('button', { name: '+ Add' }).click();
+  await expect(page).toHaveURL(new RegExp(`/r/hrm.fine/new\\?employeeId=${emp.id}`));
+  await page.goto('/hrm/payroll');
+  await expect(page.getByText('Recent runs')).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Payroll', exact: true })).toBeVisible();
+  for (const gone of ['Punches', 'Salary Structures', 'Lifecycle Events', 'Payslips']) await expect(page.locator('aside').getByRole('link', { name: gone, exact: true })).toHaveCount(0);
+});

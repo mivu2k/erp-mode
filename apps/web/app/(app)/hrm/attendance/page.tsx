@@ -1,5 +1,6 @@
 'use client';
 import { Button, Card, ErrorBox, Input, Label, PageHeader } from '@erp/ui';
+import Link from 'next/link';
 import { useState } from 'react';
 import { api } from '@/lib/api';
 
@@ -21,7 +22,8 @@ export default function ProcessAttendance() {
   };
   return (
     <>
-      <PageHeader title="Process attendance" subtitle="Turns punches, shifts, holidays and approved leave into daily status. Safe to re-run." />
+      <PageHeader title="Process attendance" subtitle="Turns punches, shifts, holidays and approved leave into daily status. Safe to re-run."
+        actions={<nav aria-label="Attendance lists" className="flex flex-wrap gap-2 text-sm">{[['hrm.attendance', 'Attendance days'], ['hrm.punch', 'Punches'], ['hrm.correction', 'Corrections']].map(([k, l]) => <Link key={k} href={`/r/${k}`} className="rounded-full border border-border px-3 py-1 hover:bg-muted">{l}</Link>)}</nav>} />
       <Card>
         <div className="flex flex-wrap items-end gap-3">
           <div><Label htmlFor="from">From</Label><Input id="from" type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></div>

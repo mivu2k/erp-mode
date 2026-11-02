@@ -37,7 +37,7 @@ function menu(meta: Meta) {
   const add = (g: string, href: string, label: string) => groups.set(g, [...(groups.get(g) ?? []), { href, label }]);
   if (can(meta, 'repair.dashboard.view')) add('repair', '/repair/dashboard', 'Dashboard');
   if (can(meta, 'fleet.dashboard.view')) add('fleet', '/fleet/dashboard', 'Dashboard');
-  if (can(meta, 'hrm.payroll.create')) add('hrm', '/hrm/payroll', 'Run payroll');
+  if (can(meta, 'hrm.payroll.create')) add('hrm', '/hrm/payroll', 'Payroll');
   if (can(meta, 'hrm.attendance.manage')) add('hrm', '/hrm/attendance', 'Process attendance');
   if (can(meta, 'catalog.item.print')) add('catalog', '/catalog/builder', 'Brochure & deck builder');
   if (can(meta, 'catalog.item.update')) add('catalog', '/catalog/profile', 'Company profile');
@@ -52,7 +52,9 @@ function menu(meta: Meta) {
   // (the dashboards link the full lists), so the menus stay short.
   const viaVehicle = new Set(['fleet.trip', 'fleet.fuel', 'fleet.event', 'fleet.maintenance', 'repair.quotation', 'repair.invoice', 'repair.creditnote', 'repair.delivery',
     'utilities.site', 'utilities.connection', 'utilities.reading', 'utilities.bill', 'purchase.receipt',
-    'finance.payment']); // payments are the cash book: see Reports › Cash & bank movements, and each account's ledger
+    'finance.payment',
+    // HR: per-person records live on the employee page; punches and corrections on the attendance screens; runs on Payroll.
+    'hrm.document', 'hrm.event', 'hrm.punch', 'hrm.correction', 'hrm.salary', 'hrm.fine', 'hrm.payslip', 'hrm.payroll']); // payments are the cash book: see Reports › Cash & bank movements, and each account's ledger
   for (const r of meta.resources) if ((r.key !== 'core.masterdata' || can(meta, 'core.masterdata.create')) && !viaVehicle.has(r.key)) add(r.group ?? r.key.split('.')[0], href(r.key), r.label);
   // Spare parts are inventory: their list and the store's parts desk (issue to / receive from repair jobs) live there.
   if (can(meta, 'inventory.product.view')) add('inventory', '/r/inventory.product?kind=part', 'Spare parts');

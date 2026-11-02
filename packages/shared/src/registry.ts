@@ -158,6 +158,15 @@ export const RESOURCES: ResourceDef[] = [
   {
     autofill: { departmentId: { managerId: 'headId', branchId: 'branchId' } },
     key: 'hrm.employee', model: 'Employee', label: 'Employees', title: 'name', subtitle: 'code',
+    // The employee page is HR's hub: everything about this person, and adding to it, in one place.
+    related: [
+      { resource: 'hrm.leave', field: 'employeeId', label: 'Leave', columns: ['leaveTypeId', 'from', 'to', 'days', 'status'], add: true },
+      { resource: 'hrm.salary', field: 'employeeId', label: 'Salary structure', columns: ['basic', 'taxPercent'], add: true },
+      { resource: 'hrm.payslip', field: 'employeeId', label: 'Payslips', columns: ['period', 'gross', 'deductions', 'net', 'paid', 'status'] },
+      { resource: 'hrm.fine', field: 'employeeId', label: 'Fines', columns: ['date', 'amount', 'reason'], add: true },
+      { resource: 'hrm.event', field: 'employeeId', label: 'Lifecycle events', columns: ['type', 'date', 'status'], add: true },
+      { resource: 'hrm.document', field: 'entityId', label: 'Documents', columns: ['type', 'number', 'expiryDate'] },
+    ],
     list: ['code', 'name', 'departmentId', 'designationId', 'branchId', 'phone', 'status'], search: ['code', 'name', 'cnic', 'phone', 'email'], barcode: 'code',
     refs: { branchId: 'core.branch', departmentId: 'core.department', designationId: 'core.designation', managerId: 'hrm.employee', userId: 'core.user', shiftId: 'hrm.shift', accountId: 'finance.account' },
     number: { field: 'code', docType: 'EMP', pattern: 'EMP-{SEQ:4}' }, owner: 'userId', readonly: ['accountId', 'qrToken', 'isDirector', 'status'], restricted: ['bank', 'cnic'], lists: { type: 'employee_type' },
