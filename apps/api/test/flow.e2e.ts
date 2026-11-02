@@ -48,12 +48,11 @@ test('auth + meta', async () => {
   await assert.rejects(call('POST', 'auth/refresh', { refreshToken: rotated.refreshToken }), /401/); // whole family revoked
   const meta = await call('GET', 'meta');
   assert.ok(meta.resources.length > 50);
-  const accounts = await list('finance.account', { code: { in: ['1110', '1120', '3100'] } });
+  const accounts = await list('finance.account', { code: { in: ['1110', '1120'] } });
   const md = await list('core.masterdata', { code: { in: ['FUEL', 'LABOR-STD', 'BENCH'] } });
   ctx = {
     cash: accounts.find((a) => a.code === '1110').id,
     bank: accounts.find((a) => a.code === '1120').id,
-    director: accounts.find((a) => a.code === '3100').id,
     fuelHead: md.find((m) => m.code === 'FUEL').id,
     labor: md.find((m) => m.code === 'LABOR-STD').id,
     wh: (await list('inventory.warehouse')).find((w) => w.code === 'MAIN').id,
@@ -71,7 +70,7 @@ test('HRM: employee gets ledger account; user link; own-scope login', async () =
 });
 
 test('Finance: cash in, advance → disburse, claim against advance settles difference', async () => {
-  const cashIn = await call('POST', 'r/finance.cash', { date: '2026-09-01', fromAccountId: ctx.director, toAccountId: ctx.cash, amount: '100000', memo: 'Director cash in' });
+  const cashIn = await call('POST', 'r/finance.cash', { date: '2026-09-01', fromAccountId: ctx.bank, toAccountId: ctx.cash, amount: '100000', memo: 'Cash in from bank' });
   // Regression: hooks must run once (module classes are instantiated twice by Nest).
   assert.equal((await list('finance.journal', { sourceType: 'finance.cash', sourceId: cashIn.id })).length, 1);
   const adv = await call('POST', 'r/finance.advance', { employeeId: ctx.emp.id, kind: 'expense', amount: '10000', purpose: 'Site visit' });
@@ -993,7 +992,7 @@ test('employee types are a managed list; Director is a type that sets the direct
   assert.equal(sec.isDirector, false);
   const dir = await call('POST', 'r/hrm.employee', { name: `Dir ${run}`, type: 'director' });
   assert.equal(dir.isDirector, true, 'Director type sets the flag');
-  assert.match((await call('GET', `r/finance.account/${dir.accountId}`)).name, /^Director – /);
+  assert.match((await call('GET', `r/finance.account/${dir.accountId}`)).name, /^Employee – /, 'no Director ledgers: every personal account is an employee account');
   assert.equal((await call('PATCH', `r/hrm.employee/${dir.id}`, { type: 'permanent' })).isDirector, false, 'changing type clears it');
 });
 

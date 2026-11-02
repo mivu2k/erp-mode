@@ -7,7 +7,7 @@ export const DEFAULT_SETTINGS = {
   /** System account ids used by automatic postings; filled by seed, editable in Admin. */
   'finance.accounts': {
     cash: '', advances: '', receivable: '', payable: '', inventory: '', cogs: '', laborIncome: '', partsIncome: '',
-    salesTax: '', salesReturns: '', salaryExpense: '', salaryPayable: '', deductionsPayable: '', directorCapital: '',
+    salesTax: '', salesReturns: '', salaryExpense: '', salaryPayable: '', deductionsPayable: '',
   } as Record<string, string>,
   /** receiptThreshold: lines above this need a receipt before submitting; 0 = receipts always optional. */
   'finance.claims': { receiptThreshold: 0 },

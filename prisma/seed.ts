@@ -119,7 +119,7 @@ async function main() {
   await add('cashGroup', '1100', 'Cash & Bank', 'asset', 'assets', { isGroup: true });
   await add('cash', '1110', 'Petty Cash – HQ', 'asset', 'cashGroup', { isCash: true, branchId: branch.id });
   await add('bank', '1120', 'Bank – Current Account', 'asset', 'cashGroup', { isBank: true });
-  await add('advances', '1300', 'Employee & Director Accounts', 'asset', 'assets', { isGroup: true });
+  await add('advances', '1300', 'Employee Accounts', 'asset', 'assets', { isGroup: true });
   await add('receivable', '1400', 'Accounts Receivable', 'asset', 'assets');
   await add('inventory', '1500', 'Inventory', 'asset', 'assets');
   await add('liabilities', '2000', 'Liabilities', 'liability', undefined, { isGroup: true });
@@ -128,7 +128,6 @@ async function main() {
   await add('deductionsPayable', '2300', 'Payroll Deductions Payable', 'liability', 'liabilities');
   await add('salesTax', '2400', 'Sales Tax Payable', 'liability', 'liabilities');
   await add('equity', '3000', 'Equity', 'equity', undefined, { isGroup: true });
-  await add('directorCapital', '3100', 'Director Capital', 'equity', 'equity');
   await add('income', '4000', 'Income', 'income', undefined, { isGroup: true });
   await add('laborIncome', '4100', 'Repair Labor Income', 'income', 'income');
   await add('partsIncome', '4200', 'Parts & Product Sales', 'income', 'income');
@@ -142,10 +141,7 @@ async function main() {
   await add('utilities', '5330', 'Utilities', 'expense', 'empExp');
   await add('repairsExp', '5340', 'Repairs & Maintenance', 'expense', 'empExp');
   await add('office', '5350', 'Office Supplies', 'expense', 'empExp');
-  await add('dirExp', '5900', 'Director Expenses', 'expense', 'expenses', { isGroup: true });
-  await add('dirTravel', '5910', 'Director Travel', 'expense', 'dirExp');
-  await add('dirEnt', '5920', 'Director Entertainment', 'expense', 'dirExp');
-  const sys = ['cash', 'advances', 'receivable', 'payable', 'inventory', 'cogs', 'laborIncome', 'partsIncome', 'salesTax', 'salesReturns', 'salaryExpense', 'salaryPayable', 'deductionsPayable', 'directorCapital'];
+  const sys = ['cash', 'advances', 'receivable', 'payable', 'inventory', 'cogs', 'laborIncome', 'partsIncome', 'salesTax', 'salesReturns', 'salaryExpense', 'salaryPayable', 'deductionsPayable'];
   await prisma.setting.create({ data: { companyId: c, key: 'finance.accounts', value: Object.fromEntries(sys.map((k) => [k, acc[k]])) } });
 
   // ─── Master data ───
@@ -162,7 +158,6 @@ async function main() {
   const [fuelHead] = await md('expense_head', [
     ['FUEL', 'Fuel', { accountId: acc.fuel }], ['TRAVEL', 'Travel', { accountId: acc.travel }], ['UTIL', 'Utilities', { accountId: acc.utilities }],
     ['REPAIR', 'Repairs', { accountId: acc.repairsExp }], ['OFFICE', 'Office Supplies', { accountId: acc.office }],
-    ['DIR-TRAVEL', 'Director Travel', { accountId: acc.dirTravel, director: true }], ['DIR-ENT', 'Director Entertainment', { accountId: acc.dirEnt, director: true }],
   ]);
   await prisma.setting.create({ data: { companyId: c, key: 'fleet.fuelHeadId', value: fuelHead } });
   await md('service_rate', [['INSPECT', 'Inspection fee (returned unrepaired)', { rate: 1500 }]]);

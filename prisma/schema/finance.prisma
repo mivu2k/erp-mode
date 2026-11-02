@@ -59,7 +59,7 @@ model JournalLine {
   @@index([partyType, partyId])
 }
 
-/// Money moving between two accounts: cash in from bank/director, transfers.
+/// Money moving between two accounts: cash in from the bank, transfers.
 model CashTransaction {
   id            String    @id @default(cuid())
   companyId     String

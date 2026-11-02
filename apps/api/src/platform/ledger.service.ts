@@ -35,13 +35,13 @@ export class LedgerService {
     return this.settings.get(companyId, 'finance.accounts');
   }
 
-  /** Personal sub-ledger account for an employee/director (created on demand). */
+  /** Personal sub-ledger account for an employee (created on demand). */
   async employeeAccount(tx: Tx, companyId: string, employeeId: string): Promise<string> {
     const emp = await tx.employee.findUniqueOrThrow({ where: { id: employeeId } });
     if (emp.accountId) return emp.accountId;
     const acc = await this.accounts(companyId);
     const account = await tx.account.create({
-      data: { companyId, parentId: acc.advances || null, code: `EMP-${emp.code}`, name: `${emp.isDirector ? 'Director' : 'Employee'} – ${emp.name}`, type: 'asset', employeeId },
+      data: { companyId, parentId: acc.advances || null, code: `EMP-${emp.code}`, name: `Employee – ${emp.name}`, type: 'asset', employeeId },
     });
     await tx.employee.update({ where: { id: employeeId }, data: { accountId: account.id } });
     return account.id;

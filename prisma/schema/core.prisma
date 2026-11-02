@@ -96,7 +96,7 @@ model CostCenter {
 
 /// One table for every configurable list: unit, tax, currency, payment_method, expense_head,
 /// product_category, service_rate, reason, holiday, fault, ... `value` holds type-specific data
-/// (e.g. tax {rate}, expense_head {accountId, director}, service_rate {rate}, holiday {date}).
+/// (e.g. tax {rate}, expense_head {accountId}, service_rate {rate}, holiday {date}).
 model MasterData {
   id        String    @id @default(cuid())
   companyId String
