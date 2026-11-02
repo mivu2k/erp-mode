@@ -755,3 +755,16 @@ test('purchase order: goods received and vendor bills on the PO; Goods Receipts 
   await expect(page).toHaveURL(new RegExp(`/r/purchase.bill/new\\?poId=${po.id}`));
   await expect(page.getByRole('link', { name: 'Goods Receipts', exact: true })).toHaveCount(0);
 });
+
+test('finance: New journal shows the running balance; Record an expense is in the menu', async ({ page }) => {
+  await page.goto('/r/finance.journal');
+  await page.getByRole('link', { name: 'New' }).click();
+  await expect(page).toHaveURL(/\/finance\/journal\/new/);
+  await page.getByLabel('Debit 1').fill('100');
+  await expect(page.getByRole('status')).toHaveText('Out by 100.00');
+  await page.getByLabel('Credit 2').fill('100');
+  await expect(page.getByRole('status')).toHaveText('Balanced');
+  await page.goto('/finance/expense');
+  await expect(page.getByRole('heading', { name: 'Record an expense' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Record an expense' })).toBeVisible();
+});

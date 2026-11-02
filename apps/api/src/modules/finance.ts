@@ -514,6 +514,50 @@ export class FinanceController {
     return accounts.map((a) => ({ ...a, balance: 0, lastActivity: null, ...bal.get(a.id) }));
   }
 
+  /** Accounts a person may post to by hand: this company's, live, not group headings. */
+  private async postable(tx: Tx, companyId: string, ids: string[]) {
+    const ok = await tx.account.findMany({ where: { id: { in: ids }, companyId, deletedAt: null, isGroup: false }, select: { id: true, type: true, isCash: true, isBank: true } });
+    if (ok.length !== new Set(ids).size) throw new BadRequestException('Pick real accounts (not group headings)');
+    return new Map(ok.map((a) => [a.id, a]));
+  }
+
+  /** Manual journal (opening balances, corrections, depreciation…): balanced lines, posted straight to the ledger. */
+  @Post('journal')
+  @Permissions('finance.journal.create')
+  manualJournal(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    const b = parse(z.object({
+      date: z.coerce.date(), memo: z.string().min(1, 'Say what the entry is for'),
+      lines: z.array(z.object({ accountId: z.string(), debit: z.coerce.number().min(0).default(0), credit: z.coerce.number().min(0).default(0), memo: z.string().optional() })).min(2),
+    }), body);
+    if (b.lines.some((l) => (l.debit > 0) === (l.credit > 0))) throw new BadRequestException('Each line is either a debit or a credit');
+    return this.prisma.$transaction(async (tx) => {
+      await this.postable(tx, user.companyId, b.lines.map((l) => l.accountId));
+      return this.ledger.post(tx, { companyId: user.companyId, branchId: user.branchId, date: b.date, memo: b.memo, sourceType: 'manual', userId: user.id, lines: b.lines });
+    });
+  }
+
+  /** A plain expense (rent, office costs…): Dr the expense account, Cr the cash/bank it was paid from, and a payment record. */
+  @Post('expense')
+  @Permissions('finance.payment.create')
+  expense(@CurrentUser() user: AuthUser, @Body() body: unknown) {
+    const b = parse(z.object({
+      date: z.coerce.date(), expenseAccountId: z.string(), paidFromId: z.string(), amount: z.coerce.number().positive(),
+      vendorId: z.string().nullish(), memo: z.string().min(1, 'Say what the expense is for'), reference: z.string().max(191).optional(),
+    }), body);
+    return this.prisma.$transaction(async (tx) => {
+      const acc = await this.postable(tx, user.companyId, [b.expenseAccountId, b.paidFromId]);
+      if (acc.get(b.expenseAccountId)!.type !== 'expense') throw new BadRequestException('The expense account must be an expense account');
+      if (!acc.get(b.paidFromId)!.isCash && !acc.get(b.paidFromId)!.isBank) throw new BadRequestException('Paid from must be a cash or bank account');
+      if (b.vendorId && !(await tx.vendor.findFirst({ where: { id: b.vendorId, companyId: user.companyId } }))) throw new BadRequestException('Unknown vendor');
+      const je = await this.ledger.post(tx, {
+        companyId: user.companyId, branchId: user.branchId, date: b.date, memo: b.memo, sourceType: 'expense', userId: user.id,
+        lines: [{ accountId: b.expenseAccountId, debit: b.amount, memo: b.memo }, { accountId: b.paidFromId, credit: b.amount, memo: b.memo }],
+      });
+      await this.payment(tx, user, { direction: 'out', partyType: b.vendorId ? 'vendor' : 'other', partyId: b.vendorId ?? '', refType: 'finance.journal', refId: je.id, amount: b.amount, accountId: b.paidFromId, journalId: je.id, reference: b.reference });
+      return je;
+    });
+  }
+
   @Get('trial-balance')
   @Permissions('finance.report.view')
   async trialBalance(@CurrentUser() user: AuthUser, @Query() q: { to?: string; format?: string }, @Res() res: Response) {

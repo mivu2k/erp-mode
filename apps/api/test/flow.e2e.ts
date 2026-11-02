@@ -491,6 +491,19 @@ test('Payroll: generate → approve → post → pay; salary advance recovered',
   assert.equal(Number((await call('GET', `r/finance.loan/${loan.id}`)).recovered), 4000);
 });
 
+test('finance: manual journal must balance and use real accounts; record an expense posts and pays', async () => {
+  const [office, group] = await Promise.all([list('finance.account', { code: '5350' }), list('finance.account', { code: '5000' })]);
+  await assert.rejects(call('POST', 'finance/journal', { date: '2026-09-30', memo: 'Bad', lines: [{ accountId: office[0].id, debit: 100 }, { accountId: ctx.cash, credit: 90 }] }), /does not balance/);
+  await assert.rejects(call('POST', 'finance/journal', { date: '2026-09-30', memo: 'Group', lines: [{ accountId: group[0].id, debit: 100 }, { accountId: ctx.cash, credit: 100 }] }), /not group headings/);
+  const je = await call('POST', 'finance/journal', { date: '2026-09-30', memo: `Correction ${run}`, lines: [{ accountId: office[0].id, debit: 250 }, { accountId: ctx.cash, credit: 250 }] });
+  assert.equal(Number(je.amount), 250);
+  await assert.rejects(call('POST', 'finance/expense', { date: '2026-09-30', expenseAccountId: ctx.cash, paidFromId: ctx.cash, amount: 10, memo: 'x' }), /must be an expense account/);
+  const ex = await call('POST', 'finance/expense', { date: '2026-09-30', expenseAccountId: office[0].id, paidFromId: ctx.cash, amount: 1200, memo: `Printer paper ${run}`, reference: `R-${run}` });
+  const pay = (await list('finance.payment', { journalId: ex.id }))[0];
+  assert.equal(Number(pay.amount), 1200, 'shows in payments / cash book');
+  assert.equal(pay.direction, 'out');
+});
+
 test('Ledger balances; reports; exports; audit', async () => {
   const tb = await call('GET', 'finance/trial-balance');
   assert.equal(tb.totals[0][1], tb.totals[1][1], 'trial balance debits = credits');

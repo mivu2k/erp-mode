@@ -29,7 +29,7 @@ export default function ListPage() {
   const fixedQs = new URLSearchParams(fixed).toString();
   const toQuery = (p: ListParams) => { const filters = { ...p.filters, ...fixed }; return { page: p.page, pageSize: p.pageSize, search: p.search, sort: p.sort, filters: Object.keys(filters).length ? filters : undefined }; };
   const title = key === 'inventory.product' && fixed.kind === 'part' ? 'Spare parts' : r.label;
-  const canCreate = r.can.create && (!r.ops || r.ops.includes('create'));
+  const canCreate = r.can.create && (!!r.createPath || !r.ops || r.ops.includes('create')); // a dedicated create screen overrides generic ops
   return (
     <>
       <PageHeader title={title} actions={

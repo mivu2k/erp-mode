@@ -222,7 +222,7 @@ export const RESOURCES: ResourceDef[] = [
     search: ['code', 'name'], refs: { parentId: 'finance.account', employeeId: 'hrm.employee', branchId: 'core.branch' },
     actions: [{ name: 'ledger', label: 'Ledger', path: 'finance/ledger/:id', opens: true, permission: 'finance.account.view' }],
   },
-  { key: 'finance.journal', model: 'JournalEntry', label: 'Journal', title: 'number', subtitle: 'memo', list: ['number', 'date', 'memo', 'sourceType', 'amount'], amountField: 'amount', search: ['number', 'memo'], ops: [], printable: true, children: { lines: 'JournalLine' }, refs: { branchId: 'core.branch' } },
+  { key: 'finance.journal', model: 'JournalEntry', label: 'Journal', title: 'number', subtitle: 'memo', list: ['number', 'date', 'memo', 'sourceType', 'amount'], amountField: 'amount', search: ['number', 'memo'], ops: [], createPath: '/finance/journal/new', printable: true, children: { lines: 'JournalLine' }, refs: { branchId: 'core.branch' } },
   {
     key: 'finance.cash', model: 'CashTransaction', label: 'Cash In / Transfers', title: 'number', subtitle: 'memo', list: ['number', 'date', 'fromAccountId', 'toAccountId', 'amount', 'memo'],
     refs: { fromAccountId: 'finance.account', toAccountId: 'finance.account', branchId: 'core.branch' }, number: { field: 'number', docType: 'CV', pattern: 'CV-{BR}-{YY}{MM}-{SEQ:4}' },
