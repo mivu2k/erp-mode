@@ -48,7 +48,10 @@ export default function Kiosk() {
     if (r.status >= 500 || r.status === 0) throw new Error('offline');
     const body = await r.json().catch(() => ({}));
     if (!r.ok) return { ok: false, title: body.message ?? 'Not recognised', text: 'Please try again or see HR' };
-    return { ok: true, title: `Welcome, ${body.employee.name}`, text: `Recorded at ${new Date(body.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` };
+    const time = new Date(body.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return body.already
+      ? { ok: true, title: `Already done, ${body.employee.name}`, text: `You were marked at ${time} — no need to scan again` }
+      : { ok: true, title: `Welcome, ${body.employee.name}`, text: `Recorded at ${time}` };
   }, [headers]);
 
   const punch = useCallback(async (p: Omit<Punch, 'at' | 'idempotencyKey'>) => {

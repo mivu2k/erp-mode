@@ -13,8 +13,10 @@ export const DEFAULT_SETTINGS = {
   'finance.claims': { receiptThreshold: 0 },
   /** Invoices are due this many days after their date (credit terms) — drives the P&R timeline, aging and forecast. */
   'finance.terms': { invoiceDays: 15 },
-  'hrm.payroll': { workingDays: 30, hoursPerDay: 8, overtimeMultiplier: 1.5, halfDayFactor: 0.5 },
-  'hrm.kiosk': { rotatingQrSeconds: 30 },
+  /** useAttendance: absent / half days cut pay and overtime is paid from attendance. Off = attendance is for monitoring only. */
+  'hrm.payroll': { useAttendance: false, workingDays: 30, hoursPerDay: 8, overtimeMultiplier: 1.5, halfDayFactor: 0.5 },
+  /** repeatMinutes: a second scan within this time is "already done" and not recorded (1440 = once a day; 0 = off). */
+  'hrm.kiosk': { rotatingQrSeconds: 30, repeatMinutes: 120 },
   'inventory.allowNegative': false,
   /**
    * Company introduction used by Catalog brochures and presentations. Text fields are one entry per line:

@@ -10,7 +10,7 @@ const INFO: Record<string, [string, string?]> = {
   'finance.accounts': ['Accounts used by automatic postings', 'Which ledger account sales, purchases, payroll and payments post to.'],
   'finance.claims': ['Expense claims', 'Receipt threshold: lines above this amount need a receipt (0 = receipts optional).'],
   'finance.terms': ['Credit terms', 'Invoices fall due this many days after their date.'],
-  'hrm.payroll': ['Payroll rules'],
+  'hrm.payroll': ['Payroll rules', 'Use attendance: absent and half days cut pay and overtime is paid. Off = attendance is only for monitoring; fines are added by hand under HR › Fines.'],
   'hrm.kiosk': ['Attendance kiosk', 'How often the kiosk QR code changes.'],
   'inventory.allowNegative': ['Allow stock to go below zero'],
   'catalog.about': ['Company profile for brochures', 'One entry per line. Highlights "Label: value"; locations "Name | address | phone | email".'],

@@ -179,8 +179,8 @@ export class HrmController {
     });
     if (!emp) throw new NotFoundException('Card not recognised');
     const at = b.at && b.at <= new Date() && Date.now() - +b.at < 7 * dayMs ? b.at : new Date();
-    await this.savePunch({ companyId: st.companyId, employeeId: emp.id, stationId: st.id, method, at, idempotencyKey: b.idempotencyKey });
-    return { employee: { name: emp.name, code: emp.code }, at };
+    const already = await this.savePunch({ companyId: st.companyId, employeeId: emp.id, stationId: st.id, method, at, idempotencyKey: b.idempotencyKey });
+    return { employee: { name: emp.name, code: emp.code }, at: already ?? at, already: !!already };
   }
 
   /** Kiosk displays this QR; employees scan it from the app (anti-spoof, rotates every N seconds). */
@@ -220,8 +220,8 @@ export class HrmController {
     const now = Date.now();
     if (![now, now - w * 1000].some((t) => rotatingCode(st.secret!, t, w) === code)) throw new BadRequestException('QR expired, scan again');
     const at = new Date();
-    await this.savePunch({ companyId: user.companyId, employeeId: user.employeeId, stationId: st.id, method: 'rotating_qr', at, idempotencyKey: body.idempotencyKey });
-    return { ok: true, station: st.name, at };
+    const already = await this.savePunch({ companyId: user.companyId, employeeId: user.employeeId, stationId: st.id, method: 'rotating_qr', at, idempotencyKey: body.idempotencyKey });
+    return { ok: true, station: st.name, at: already ?? at, already: !!already };
   }
 
   /** Mobile punch with GPS; must be inside some station's geofence. */
@@ -232,8 +232,8 @@ export class HrmController {
     const stations = await this.prisma.kioskStation.findMany({ where: { companyId: user.companyId, isActive: true, deletedAt: null, lat: { not: null } } });
     const inside = stations.find((s) => distanceM(b.lat, b.lng, s.lat!, s.lng!) <= s.radiusM);
     if (!inside) throw new BadRequestException('You are outside every allowed location');
-    await this.savePunch({ companyId: user.companyId, employeeId: user.employeeId, stationId: inside.id, method: 'mobile', at: new Date(), lat: b.lat, lng: b.lng, idempotencyKey: b.idempotencyKey });
-    return { ok: true, station: inside.name };
+    const already = await this.savePunch({ companyId: user.companyId, employeeId: user.employeeId, stationId: inside.id, method: 'mobile', at: new Date(), lat: b.lat, lng: b.lng, idempotencyKey: b.idempotencyKey });
+    return { ok: true, station: inside.name, ...(already ? { already: true, at: already } : {}) };
   }
 
   @Post('attendance/import')
@@ -246,12 +246,24 @@ export class HrmController {
     return { imported: count, unknown: rows.length - data.length };
   }
 
-  private async savePunch(p: Prisma.AttendancePunchUncheckedCreateInput) {
+  /**
+   * Records a punch, unless the same person punched within the grace period (repeat taps at the kiosk):
+   * then nothing is saved and the earlier time comes back, so the screen can say "already done".
+   */
+  private async savePunch(p: Prisma.AttendancePunchUncheckedCreateInput): Promise<Date | null> {
+    const { repeatMinutes } = await this.settings.get(p.companyId, 'hrm.kiosk');
+    const at = new Date(p.at as Date);
+    const earlier = repeatMinutes > 0 ? await this.prisma.attendancePunch.findFirst({
+      where: { employeeId: p.employeeId, at: { gte: new Date(+at - repeatMinutes * 60_000), lte: new Date(+at + repeatMinutes * 60_000) }, NOT: p.idempotencyKey ? { idempotencyKey: p.idempotencyKey } : undefined },
+      orderBy: { at: 'asc' }, select: { at: true },
+    }) : null;
+    if (earlier) return earlier.at;
     try {
       await this.prisma.attendancePunch.create({ data: p });
     } catch (e) {
       if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002')) throw e; // replayed offline punch
     }
+    return null;
   }
 
   /** Builds AttendanceDay rows for one local date from punches, shifts, holidays and approved leave. Safe to re-run. */
@@ -359,14 +371,16 @@ export class HrmController {
       for (const e of employees) {
         const s = structures.get(e.id);
         if (!s) continue;
-        const days = await tx.attendanceDay.findMany({ where: { employeeId: e.id, date: { gte: from, lt: to } } });
+        const days = cfg.useAttendance ? await tx.attendanceDay.findMany({ where: { employeeId: e.id, date: { gte: from, lt: to } } }) : [];
         const unpaidLeave = Number((await tx.leaveRequest.aggregate({ _sum: { days: true }, where: { employeeId: e.id, leaveTypeId: { in: unpaidTypes }, status: 'approved', from: { gte: from, lt: to } } }))._sum.days ?? 0);
         const advances = await tx.advance.findMany({ where: { employeeId: e.id, kind: 'salary', status: 'disbursed', deletedAt: null } });
         const installments = advances.reduce((sum, a) => sum + Math.min(Number(a.installmentAmount), Number(a.amount) - Number(a.recovered)), 0);
         const p = computePayslip({
           basic: Number(s.basic), components: s.components as never, taxPercent: Number(s.taxPercent), workingDays: cfg.workingDays, hoursPerDay: cfg.hoursPerDay, overtimeMultiplier: cfg.overtimeMultiplier,
-          absentDays: days.filter((x) => x.status === 'absent').length + days.filter((x) => x.status === 'half_day').length * cfg.halfDayFactor + unpaidLeave,
-          overtimeMin: days.reduce((sum, x) => sum + x.overtimeMin, 0),
+          // Attendance is for monitoring: it only changes pay when the company switches that on. Unpaid leave always counts.
+          absentDays: (cfg.useAttendance ? days.filter((x) => x.status === 'absent').length + days.filter((x) => x.status === 'half_day').length * cfg.halfDayFactor : 0) + unpaidLeave,
+          overtimeMin: cfg.useAttendance ? days.reduce((sum, x) => sum + x.overtimeMin, 0) : 0,
+          fines: Number((await tx.fine.aggregate({ _sum: { amount: true }, where: { employeeId: e.id, deletedAt: null, date: { gte: from, lt: to } } }))._sum.amount ?? 0),
           advanceInstallments: installments,
         });
         await tx.payslip.create({

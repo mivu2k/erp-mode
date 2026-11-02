@@ -206,6 +206,7 @@ export const RESOURCES: ResourceDef[] = [
       { name: 'bank-sheet', label: 'Bank transfer sheet', path: 'hrm/payroll/:id/bank-sheet', opens: true, permission: 'hrm.payroll.export' },
     ],
   },
+  { key: 'hrm.fine', model: 'Fine', label: 'Fines', title: 'reason', list: ['date', 'employeeId', 'amount', 'reason'], refs: { employeeId: 'hrm.employee' }, owner: 'employeeId', amountField: 'amount', search: ['reason'] },
   {
     key: 'hrm.payslip', model: 'Payslip', label: 'Payslips', title: 'period', list: ['period', 'employeeId', 'gross', 'deductions', 'net', 'paid', 'status'],
     refs: { employeeId: 'hrm.employee', runId: 'hrm.payroll' }, ops: [], owner: 'employeeId', printable: true,

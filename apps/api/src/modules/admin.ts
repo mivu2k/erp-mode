@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Param, Post, Put } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, OnModuleInit, Param, Post, Put } from '@nestjs/common';
 import { ALL_PERMISSIONS, MODULES, passwordSchema } from '@erp/shared';
 import { DataScope } from '@prisma/client';
 import { z } from 'zod';
@@ -15,7 +15,34 @@ const MASK = '••••••';
 const matrixSchema = z.array(z.object({ key: z.string(), scope: z.enum(['own', 'department', 'branch', 'all']) }));
 
 @Controller()
-export class AdminController {
+export class AdminController implements OnModuleInit {
+  /**
+   * Permissions added by an update (a new screen) reach existing installs: the key is created, and every role that
+   * already holds all of that module's permissions for the same action (Admin, HR Manager…) gets it at its widest scope.
+   */
+  async onModuleInit() {
+    const have = new Set((await this.prisma.permission.findMany({ select: { key: true } })).map((p) => p.key));
+    const fresh = ALL_PERMISSIONS.filter((k) => !have.has(k));
+    if (!fresh.length || !have.size) return; // nothing new, or a blank database the seed will fill
+    await this.prisma.permission.createMany({ data: fresh.map((key) => ({ key, module: key.split('.')[0] })), skipDuplicates: true });
+    const perms = await this.prisma.permission.findMany({ select: { id: true, key: true } });
+    const roles = await this.prisma.role.findMany({ include: { permissions: { include: { permission: { select: { key: true } } } } } });
+    const rank: Record<DataScope, number> = { own: 0, department: 1, branch: 2, all: 3 };
+    for (const key of fresh) {
+      const [mod, , action] = key.split('.');
+      const siblings = [...have].filter((k) => k.startsWith(`${mod}.`) && k.endsWith(`.${action}`));
+      if (!siblings.length) continue;
+      const id = perms.find((p) => p.key === key)!.id;
+      for (const role of roles) {
+        const held = role.permissions.filter((rp) => siblings.includes(rp.permission.key));
+        if (held.length < siblings.length) continue;
+        const scope = held.reduce<DataScope>((w, rp) => (rank[rp.scope] > rank[w] ? rp.scope : w), 'own');
+        await this.prisma.rolePermission.createMany({ data: [{ roleId: role.id, permissionId: id, scope }], skipDuplicates: true });
+      }
+    }
+    this.guard.invalidate();
+  }
+
   constructor(private prisma: PrismaService, private settings: SettingsService, private audit: AuditService, private guard: AuthGuard, hooks: HooksService) {
     // Users are created through the generic engine; the password arrives as a plain field and is hashed here.
     hooks.on('core.user', {

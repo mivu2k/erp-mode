@@ -427,6 +427,9 @@ test('Attendance: pair kiosk → NFC punch (idempotent) → process day', async 
   const day0 = new Date(Date.now() - back * 86_400_000).toISOString().slice(0, 10);
   await call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}`, at: `${day0}T04:25:00Z`, idempotencyKey: `k1-${run}` }, h); // 09:25 PKT
   await call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}`, at: `${day0}T04:25:00Z`, idempotencyKey: `k1-${run}` }, h); // offline replay
+  const again = await call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}`, at: `${day0}T04:40:00Z`, idempotencyKey: `k1b-${run}` }, h); // tapped again 15 min later
+  assert.equal(again.already, true, 'a repeat tap within the grace period is "already done", not a new punch');
+  assert.equal(new Date(again.at).toISOString(), `${day0}T04:25:00.000Z`, 'shows the first time');
   await call('POST', 'hrm/kiosk/punch', { nfcUid: `NFC-${run}`, at: `${day0}T12:10:00Z`, idempotencyKey: `k2-${run}` }, h); // 17:10 PKT
   token = saved;
   await call('POST', 'hrm/attendance/process', { date: day0 });
@@ -470,11 +473,16 @@ test('Payroll: generate → approve → post → pay; salary advance recovered',
   await release(await call('POST', `finance/advances/${loan.id}/disburse`, { accountId: ctx.cash }));
   // Unique per run: 96,000 year-month slots (years 2000–9999 × 12), one per second, so past runs don't collide.
   const slot = Math.floor(Date.now() / 1000) % 96_000;
-  const run1 = await call('POST', 'hrm/payroll/generate', { period: `${2000 + (slot % 8000)}-${String(1 + Math.floor(slot / 8000)).padStart(2, '0')}` });
+  const period = `${2000 + (slot % 8000)}-${String(1 + Math.floor(slot / 8000)).padStart(2, '0')}`;
+  // A manual fine dated in the month is deducted; attendance (monitoring only by default) cuts nothing.
+  await call('POST', 'r/hrm.fine', { employeeId: ctx.emp.id, date: `${period}-05`, amount: '1500', reason: 'Late 5 times' });
+  const run1 = await call('POST', 'hrm/payroll/generate', { period });
   await approveAll('hrm.payroll', run1.id);
   await call('POST', `hrm/payroll/${run1.id}/post`);
   const slip = (await list('hrm.payslip', { runId: run1.id })).find((s) => s.employeeId === ctx.emp.id)!;
   assert.equal(Number(slip.advanceDeduction), 4000);
+  assert.equal(slip.lines.find((l: J) => l.name === 'Fines')?.amount, 1500, 'manual fine deducted');
+  assert.ok(!slip.lines.some((l: J) => l.name === 'Absent deduction' || l.name === 'Overtime'), 'attendance does not touch pay unless switched on');
   await call('POST', `hrm/payslips/${slip.id}/pay`, { amount: Number(slip.net), accountId: ctx.bank });
   assert.equal(Number((await call('GET', `r/finance.loan/${loan.id}`)).recovered), 4000);
 });

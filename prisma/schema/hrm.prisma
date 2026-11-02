@@ -320,3 +320,22 @@ model Payslip {
   @@unique([runId, employeeId])
   @@index([employeeId])
 }
+
+/// A manual fine (late coming, misconduct…); the payroll run for that month deducts it.
+model Fine {
+  id          String    @id @default(cuid())
+  companyId   String
+  branchId    String?
+  employeeId  String
+  date        DateTime  @db.Date
+  amount      Decimal   @db.Decimal(18, 2)
+  reason      String
+  custom      Json?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  @@index([companyId, date])
+  @@index([employeeId, date])
+}

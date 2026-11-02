@@ -243,8 +243,9 @@ function SearchDialog({ open, onClose }: { open: boolean; onClose(): void }) {
     if (code.startsWith('ERPKIOSK:')) {
       setHits([]); setUnknown('');
       try {
-        const r = await api<{ station: string; at: string }>('hrm/attendance/scan', 'POST', { payload: code, idempotencyKey: crypto.randomUUID() });
-        setNote(`✓ Checked in at ${r.station} — ${new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`);
+        const r = await api<{ station: string; at: string; already?: boolean }>('hrm/attendance/scan', 'POST', { payload: code, idempotencyKey: crypto.randomUUID() });
+        const time = new Date(r.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        setNote(r.already ? `✓ Already done — you were marked at ${time}` : `✓ Checked in at ${r.station} — ${time}`);
       } catch (e) { setNote(`✕ ${e instanceof Error ? e.message : 'Check-in failed'}`); }
       return;
     }
