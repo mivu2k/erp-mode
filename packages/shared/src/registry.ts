@@ -131,7 +131,7 @@ export const MODULES: Record<string, { label: string; icon: string }> = {
 
 export const RESOURCES: ResourceDef[] = [
   // ─── Core ──────────────────────────────────────────────────
-  { key: 'core.company', model: 'Company', label: 'Company', title: 'name', list: ['name', 'taxId', 'phone', 'currency', 'timezone'], ops: ['update'] },
+  { key: 'core.company', model: 'Company', label: 'Company & branding', title: 'name', list: ['name', 'taxId', 'phone', 'currency', 'timezone'], ops: ['update'] },
   { key: 'core.branch', model: 'Branch', label: 'Branches', title: 'name', subtitle: 'code', list: ['code', 'name', 'phone'], search: ['code', 'name'] },
   { key: 'core.department', model: 'Department', label: 'Departments', title: 'name', list: ['name', 'branchId', 'headId'], refs: { branchId: 'core.branch', headId: 'hrm.employee' }, search: ['name'] },
   { key: 'core.designation', model: 'Designation', label: 'Designations', title: 'name', list: ['name'] },
@@ -145,7 +145,7 @@ export const RESOURCES: ResourceDef[] = [
       { name: 'logout', label: 'Force logout', path: 'auth/users/:id/logout', permission: 'core.user.manage' },
     ],
   },
-  { key: 'core.role', model: 'Role', label: 'Roles', title: 'name', list: ['name', 'isSystem'], readonly: ['isSystem'] },
+  { key: 'core.role', model: 'Role', label: 'Roles & permissions', title: 'name', list: ['name', 'isSystem'], readonly: ['isSystem'] },
   { key: 'core.masterdata', model: 'MasterData', label: 'Master Data', title: 'name', subtitle: 'type', list: ['type', 'code', 'name', 'isActive', 'sort'], search: ['type', 'code', 'name'] },
   { key: 'core.sequence', model: 'Sequence', label: 'Numbering', title: 'docType', list: ['docType', 'pattern', 'reset', 'current', 'branchId'], readonly: ['period'] },
   { key: 'core.customfield', model: 'CustomField', label: 'Custom Fields', title: 'label', list: ['resource', 'name', 'label', 'type', 'required'] },
@@ -316,7 +316,14 @@ export const RESOURCES: ResourceDef[] = [
     restricted: ['cost'], readonly: ['cost', 'sku'], printable: true,
     actions: [{ name: 'label', label: 'Print label', path: 'print/inventory.product/:id?template=label', opens: true, permission: 'inventory.product.print' }],
   },
-  { key: 'inventory.warehouse', model: 'Warehouse', label: 'Warehouses', title: 'name', subtitle: 'code', list: ['code', 'name', 'kind', 'branchId'], refs: { branchId: 'core.branch' } },
+  {
+    key: 'inventory.warehouse', model: 'Warehouse', label: 'Warehouses', title: 'name', subtitle: 'code', list: ['code', 'name', 'kind', 'branchId'], refs: { branchId: 'core.branch' },
+    // A store's page shows what it holds and its counts / transfers (the stock-level and ledger lists stay out of the menu).
+    related: [
+      { resource: 'inventory.stock', field: 'warehouseId', label: 'In stock', columns: ['productId', 'qty', 'avgCost'] },
+      { resource: 'inventory.adjustment', field: 'warehouseId', label: 'Counts, adjustments & transfers', columns: ['number', 'kind', 'toWarehouseId', 'status', 'createdAt'], add: true },
+    ],
+  },
   { key: 'inventory.stock', model: 'StockLevel', label: 'Stock Levels', title: 'productId', list: ['productId', 'warehouseId', 'qty', 'avgCost'], refs: { productId: 'inventory.product', warehouseId: 'inventory.warehouse' }, restricted: ['avgCost'], ops: [] },
   { key: 'inventory.movement', model: 'StockMovement', label: 'Stock Ledger', title: 'type', list: ['at', 'productId', 'warehouseId', 'type', 'qty', 'unitCost', 'serial', 'refType'], refs: { productId: 'inventory.product', warehouseId: 'inventory.warehouse' }, restricted: ['unitCost'], ops: [], search: ['serial', 'type'] },
   {

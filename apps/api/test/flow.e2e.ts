@@ -567,7 +567,7 @@ test('PDF rendering (record + report)', async () => {
 });
 
 test('one-step approval: named approver or anyone with Approve rights decides; delegation; plain history', async () => {
-  const roles = (await call('GET', 'r/core.role?pageSize=100')).rows as J[];
+  const roles = (await call('GET', `r/core.role?pageSize=50&filters=${encodeURIComponent(JSON.stringify({ name: { in: ['Accountant', 'HR Manager', 'Employee', 'Technician', 'Admin'] } }))}`)).rows as J[];
   const acct = roles.find((r) => r.name === 'Accountant')!;
   const u1 = await call('POST', 'r/core.user', { name: `Acc1 ${run}`, email: `acc1.${run}@erp.local`, password: 'Secret123' });
   const cover = await call('POST', 'r/core.user', { name: `Cover ${run}`, email: `cover.${run}@erp.local`, password: 'Secret123' });
@@ -835,7 +835,7 @@ test('loans vs expense advances are separate; maker-checker on payment vouchers;
   await assert.rejects(call('GET', `r/finance.advance/${ctx.loanId}`), /404/);
 
   // An accountant prepares a reimbursement voucher and may not approve it themselves.
-  const roles = (await call('GET', 'r/core.role?pageSize=100')).rows as J[];
+  const roles = (await call('GET', `r/core.role?pageSize=50&filters=${encodeURIComponent(JSON.stringify({ name: { in: ['Accountant', 'HR Manager', 'Employee', 'Technician', 'Admin'] } }))}`)).rows as J[];
   const acct = roles.find((r) => r.name === 'Accountant')!;
   const maker = await call('POST', 'r/core.user', { name: `Maker ${run}`, email: `maker.${run}@erp.local`, password: 'Secret123' });
   await call('POST', `users/${maker.id}/roles`, { roleIds: [acct.id] });
@@ -1028,7 +1028,7 @@ test('employee types are a managed list; Director is a type that sets the direct
 });
 
 test('an approval admin decides alone, even on a workflow saved with old extra steps', async () => {
-  const roles = (await call('GET', 'r/core.role?pageSize=100')).rows as J[];
+  const roles = (await call('GET', `r/core.role?pageSize=50&filters=${encodeURIComponent(JSON.stringify({ name: { in: ['Accountant', 'HR Manager', 'Employee', 'Technician', 'Admin'] } }))}`)).rows as J[];
   const acct = roles.find((r) => r.name === 'Accountant')!;
   const hr = roles.find((r) => r.name === 'HR Manager')!;
   const wf = await call('POST', 'r/core.workflow', { name: `Two step ${run}`, resource: 'finance.advance', priority: 98, steps: [{ name: 'Accounts', approverType: 'role', approverId: acct.id, mode: 'any' }, { name: 'HR', approverType: 'role', approverId: hr.id, mode: 'any' }] });

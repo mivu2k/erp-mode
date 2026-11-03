@@ -1,4 +1,5 @@
 'use client';
+import Link from 'next/link';
 import { Button, Card, ErrorBox, FormGrid, PageHeader, StatusBadge } from '@erp/ui';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
@@ -17,7 +18,7 @@ export default function Branding() {
   const save = () => api(`r/core.company/${company!.id}`, 'PATCH', { branding: b }).then(() => { setMsg(null); qc.invalidateQueries({ queryKey: ['meta'] }); }).catch(setMsg);
   return (
     <>
-      <PageHeader title="Branding & theme" actions={<Button onClick={save}>Save & apply</Button>} />
+      <PageHeader title="Company & branding" actions={<>{company && <Link href={`/r/core.company/${company.id}`}><Button variant="outline">Company details</Button></Link>}<Button onClick={save}>Save & apply</Button></>} />
       <ErrorBox error={msg} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>

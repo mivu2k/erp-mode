@@ -791,3 +791,23 @@ test('HR: the employee page is the hub; payroll page lists runs; shorter menu', 
   await expect(page.getByRole('link', { name: 'Payroll', exact: true })).toBeVisible();
   for (const gone of ['Punches', 'Salary Structures', 'Lifecycle Events', 'Payslips']) await expect(page.locator('aside').getByRole('link', { name: gone, exact: true })).toHaveCount(0);
 });
+
+test('inventory: a warehouse shows its stock and adjustments; stock lists out of the menu', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const wh = (await (await request.get('/api/r/inventory.warehouse?pageSize=1&sort=createdAt:asc', { headers: { Authorization: `Bearer ${accessToken}` } })).json()).rows[0];
+  await page.goto(`/r/inventory.warehouse/${wh.id}`);
+  await expect(page.getByText(/^In stock \(\d+\)$/)).toBeVisible();
+  await page.locator('section', { hasText: /Counts, adjustments & transfers \(/ }).getByRole('button', { name: '+ Add' }).click();
+  await expect(page).toHaveURL(new RegExp(`/r/inventory.adjustment/new\\?warehouseId=${wh.id}`));
+  for (const gone of ['Stock Levels', 'Stock Ledger']) await expect(page.locator('aside').getByRole('link', { name: gone, exact: true })).toHaveCount(0);
+});
+
+test('admin: one entry each for roles and company; old list links land there', async ({ page }) => {
+  await page.goto('/r/core.role');
+  await expect(page).toHaveURL(/\/admin\/roles/);
+  await page.goto('/r/core.company');
+  await expect(page).toHaveURL(/\/admin\/branding/);
+  await expect(page.getByRole('heading', { name: 'Company & branding' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Company details' })).toBeVisible();
+  await expect(page.locator('aside').getByRole('link', { name: 'Branding', exact: true })).toHaveCount(0);
+});
