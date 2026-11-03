@@ -131,13 +131,13 @@ export const MODULES: Record<string, { label: string; icon: string }> = {
 
 export const RESOURCES: ResourceDef[] = [
   // ─── Core ──────────────────────────────────────────────────
-  { key: 'core.company', model: 'Company', label: 'Company & branding', title: 'name', list: ['name', 'taxId', 'phone', 'currency', 'timezone'], ops: ['update'] },
+  { key: 'core.company', model: 'Company', label: 'Company', title: 'name', list: ['name', 'taxId', 'phone', 'currency', 'timezone'], ops: ['update'] },
   { key: 'core.branch', model: 'Branch', label: 'Branches', title: 'name', subtitle: 'code', list: ['code', 'name', 'phone'], search: ['code', 'name'] },
   { key: 'core.department', model: 'Department', label: 'Departments', title: 'name', list: ['name', 'branchId', 'headId'], refs: { branchId: 'core.branch', headId: 'hrm.employee' }, search: ['name'] },
   { key: 'core.designation', model: 'Designation', label: 'Designations', title: 'name', list: ['name'] },
   { key: 'core.costcenter', model: 'CostCenter', label: 'Cost Centers', title: 'name', list: ['code', 'name'] },
   {
-    key: 'core.user', model: 'User', label: 'Users', title: 'name', subtitle: 'email', list: ['name', 'email', 'username', 'isActive', 'lastLoginAt'],
+    key: 'core.user', model: 'User', label: 'Users & teams', title: 'name', subtitle: 'email', list: ['name', 'email', 'username', 'isActive', 'lastLoginAt'],
     search: ['name', 'email', 'username'], refs: { branchId: 'core.branch', departmentId: 'core.department' }, owner: 'id',
     hidden: ['passwordHash', 'totpSecret', 'resetTokenHash', 'resetExpires', 'failedLogins', 'lockedUntil'], readonly: ['lastLoginAt', 'totpEnabled'],
     actions: [

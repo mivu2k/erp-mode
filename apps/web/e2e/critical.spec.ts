@@ -161,7 +161,7 @@ test('logo upload shows in sidebar; product image gallery', async ({ page, reque
   await page.goto('/admin/branding');
   await page.getByLabel('Upload Logo (dark background)').setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: png });
   await expect(page.getByRole('img', { name: 'Logo (dark background)' })).toBeVisible();
-  await page.getByRole('button', { name: 'Save & apply' }).click();
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.locator('aside img').first()).toHaveAttribute('src', /^data:image\/png;base64,/);
 
   await page.goto('/r/inventory.product/new'); // the generic address hands over to the product screen
@@ -209,9 +209,9 @@ test('intake: inline validation, known serial fills in, duplicate unit, draft su
 });
 
 test('assign roles to a user from the Roles tab', async ({ page }) => {
-  await page.goto('/r/core.user');
-  await page.getByLabel('Search').fill('Maker');
-  await page.getByRole('cell', { name: /^Maker / }).first().click();
+  await page.goto('/admin/people');
+  await page.getByLabel('Find a user').fill('Maker');
+  await page.getByRole('link', { name: /^MA?\s*Maker / }).or(page.locator('a', { hasText: /Maker / })).first().click();
   await page.getByRole('tab', { name: 'Roles' }).click();
   const tech = page.getByRole('switch', { name: 'Technician' });
   const was = await tech.isChecked();
@@ -807,8 +807,9 @@ test('admin: one entry each for roles and company; old list links land there', a
   await expect(page).toHaveURL(/\/admin\/roles/);
   await page.goto('/r/core.company');
   await expect(page).toHaveURL(/\/admin\/branding/);
-  await expect(page.getByRole('heading', { name: 'Company & branding' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Company details' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Company', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Company name')).toBeVisible();
+  await expect(page.getByLabel('New code')).toBeAttached(); // the Branches list, on the same page
   await expect(page.locator('aside').getByRole('link', { name: 'Branding', exact: true })).toHaveCount(0);
 });
 
@@ -818,4 +819,16 @@ test('serials: register dialog takes an optional frequency; frequency report in 
   await page.goto('/reports');
   await page.getByPlaceholder('Find a report…').fill('frequency');
   await expect(page.getByText('Serials with frequency').first()).toBeVisible();
+});
+
+test('users & teams: departments and designations edited in place next to the users', async ({ page }) => {
+  await page.goto('/r/core.designation');
+  await expect(page).toHaveURL(/\/admin\/people/);
+  await expect(page.getByRole('heading', { name: 'Users & teams' })).toBeVisible();
+  await page.getByLabel('New name').nth(1).fill(`Inspector ${run}`); // designations: second list with a name column
+  await page.getByRole('button', { name: 'Add to Designations' }).click();
+  await expect(page.getByLabel(`Name of Inspector ${run}`)).toBeVisible();
+  page.once('dialog', (d) => d.accept());
+  await page.getByRole('button', { name: `Delete Inspector ${run}` }).click();
+  await expect(page.getByLabel(`Name of Inspector ${run}`)).toHaveCount(0);
 });

@@ -87,9 +87,9 @@ export function FieldInput({ f, value, onChange, renderRef, disabled, refs }: { 
 }
 
 /** Metadata-driven form grid: text areas span the row, switches sit inline with their label. */
-export function FormGrid({ fields, values, onChange, renderRef, disabled, columns = 3 }: { fields: FieldMeta[]; values: Record<string, unknown>; onChange(name: string, v: unknown): void; renderRef?: RefRenderer; disabled?: boolean; columns?: 1 | 3 }) {
+export function FormGrid({ fields, values, onChange, renderRef, disabled, columns = 3 }: { fields: FieldMeta[]; values: Record<string, unknown>; onChange(name: string, v: unknown): void; renderRef?: RefRenderer; disabled?: boolean; columns?: 1 | 2 | 3 }) {
   return (
-    <div className={columns === 1 ? 'grid gap-y-4' : 'grid gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-3'}>
+    <div className={columns === 1 ? 'grid gap-y-4' : columns === 2 ? 'grid gap-x-5 gap-y-4 sm:grid-cols-2' : 'grid gap-x-5 gap-y-4 sm:grid-cols-2 lg:grid-cols-3'}>
       {fields.map((f) => (
         <div key={f.name} className={f.type === 'text' || f.type === 'json' || f.type === 'richtext' ? 'sm:col-span-2 lg:col-span-3' : f.type === 'bool' ? 'flex items-end pb-2' : ''}>
           {f.type === 'bool' ? (

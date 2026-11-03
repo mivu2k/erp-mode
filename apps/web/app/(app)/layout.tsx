@@ -46,7 +46,7 @@ function menu(meta: Meta) {
   if (can(meta, 'payables.due.create')) { add('payables', '/r/payables.due/new?direction=receivable', 'Add receivable'); add('payables', '/r/payables.due/new?direction=payable', 'Add payable'); }
   if (can(meta, 'finance.payment.create')) add('finance', '/finance/expense', 'Record an expense');
   // Products and repair spare parts are one item list, split by kind: each gets its own menu entry.
-  const href = (k: string) => (k === 'finance.account' ? '/finance/accounts' : k === 'core.masterdata' ? '/admin/lists' : k === 'core.role' ? '/admin/roles' : k === 'core.company' ? '/admin/branding' : k === 'core.setting' ? '/admin/settings' : k === 'serials.item' ? '/serials' : k === 'inventory.product' ? '/r/inventory.product?kind=product' : `/r/${k}`);
+  const href = (k: string) => (k === 'finance.account' ? '/finance/accounts' : k === 'core.masterdata' ? '/admin/lists' : k === 'core.role' ? '/admin/roles' : k === 'core.company' ? '/admin/branding' : k === 'core.user' ? '/admin/people' : k === 'core.setting' ? '/admin/settings' : k === 'serials.item' ? '/serials' : k === 'inventory.product' ? '/r/inventory.product?kind=product' : `/r/${k}`);
   // Everyone can read master data (dropdown choices); only those who edit it get the menu entry.
   // Fleet logs live on each vehicle's page, and a repair's quotation / invoice / refund / delivery on its job and intake
   // (the dashboards link the full lists), so the menus stay short.
@@ -56,7 +56,9 @@ function menu(meta: Meta) {
     // HR: per-person records live on the employee page; punches and corrections on the attendance screens; runs on Payroll.
     'hrm.document', 'hrm.event', 'hrm.punch', 'hrm.correction', 'hrm.salary', 'hrm.fine', 'hrm.payslip', 'hrm.payroll',
     // Inventory: stock per product / per store is on those pages; the full ledger is in Reports.
-    'inventory.stock', 'inventory.movement']); // payments are the cash book: see Reports › Cash & bank movements, and each account's ledger
+    'inventory.stock', 'inventory.movement',
+    // Admin: branches live on the Company page; departments, designations and cost centers on Users & teams.
+    'core.branch', 'core.department', 'core.designation', 'core.costcenter']); // payments are the cash book: see Reports › Cash & bank movements, and each account's ledger
   for (const r of meta.resources) if ((r.key !== 'core.masterdata' || can(meta, 'core.masterdata.create')) && !viaVehicle.has(r.key)) add(r.group ?? r.key.split('.')[0], href(r.key), r.label);
   // Spare parts are inventory: their list and the store's parts desk (issue to / receive from repair jobs) live there.
   if (can(meta, 'inventory.product.view')) add('inventory', '/r/inventory.product?kind=part', 'Spare parts');
