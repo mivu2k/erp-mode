@@ -513,6 +513,23 @@ test('finance: manual journal must balance and use real accounts; record an expe
   assert.equal(pay.direction, 'out');
 });
 
+test('cash & bank balances run from a confirmed figure plus what was recorded after it', async () => {
+  const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+  await call('POST', `finance/accounts/${ctx.cash}/confirm-balance`, { amount: 50000, date: yesterday });
+  const row = async () => (await call('GET', 'finance/cash-balances')).rows.find((r: J) => r.id === ctx.cash);
+  const before = await row();
+  assert.equal(before.confirmedAmount, 50000);
+  const office = (await list('finance.account', { code: '5350' }))[0];
+  await call('POST', 'finance/expense', { date: new Date().toISOString().slice(0, 10), expenseAccountId: office.id, paidFromId: ctx.cash, amount: 1000, memo: `Tea ${run}` });
+  assert.equal(Number((await row()).balance), Number(before.balance) - 1000, 'a later payment comes off the confirmed figure');
+  await assert.rejects(call('POST', `finance/accounts/${ctx.cash}/confirm-balance`, { amount: 1, date: '2999-01-01' }), /future/);
+  const today = new Date().toISOString().slice(0, 10);
+  await call('POST', `finance/accounts/${ctx.cash}/confirm-balance`, { amount: 12345, date: today });
+  assert.equal(Number((await row()).balance), 12345, 'counted today: the balance is exactly the count');
+  const csv = await call('GET', 'finance/cash-balances?format=csv');
+  assert.match(csv.text, /balance/i);
+});
+
 test('every print carries a barcode and a QR; a record page can show both', async () => {
   const pay = (await list('finance.payment'))[0];
   const auth = { headers: { Authorization: `Bearer ${token}` } };

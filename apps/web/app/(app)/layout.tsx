@@ -45,6 +45,7 @@ function menu(meta: Meta) {
   if (can(meta, 'utilities.connection.view')) add('utilities', '/utilities', 'Tracker');
   if (can(meta, 'payables.due.create')) { add('payables', '/r/payables.due/new?direction=receivable', 'Add receivable'); add('payables', '/r/payables.due/new?direction=payable', 'Add payable'); }
   if (can(meta, 'finance.payment.create')) add('finance', '/finance/expense', 'Record an expense');
+  if (can(meta, 'finance.account.view')) add('finance', '/finance/balances', 'Cash & bank balances');
   // Products and repair spare parts are one item list, split by kind: each gets its own menu entry.
   const href = (k: string) => (k === 'finance.account' ? '/finance/accounts' : k === 'core.masterdata' ? '/admin/lists' : k === 'core.role' ? '/admin/roles' : k === 'core.company' ? '/admin/branding' : k === 'core.user' ? '/admin/people' : k === 'core.setting' ? '/admin/settings' : k === 'serials.item' ? '/serials' : k === 'inventory.product' ? '/r/inventory.product?kind=product' : `/r/${k}`);
   // Everyone can read master data (dropdown choices); only those who edit it get the menu entry.

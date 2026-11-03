@@ -840,3 +840,9 @@ test('a record page shows its barcode and QR', async ({ page, request }) => {
   await expect(page.getByRole('img', { name: `Barcode ${job.number}` })).toBeVisible();
   await expect(page.getByRole('img', { name: 'QR code' })).toBeVisible();
 });
+
+test('finance: cash & bank balances page with Set balance', async ({ page }) => {
+  await page.goto('/finance/balances');
+  await expect(page.getByRole('heading', { name: 'Cash & bank balances' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Set balance' }).first()).toBeVisible();
+});

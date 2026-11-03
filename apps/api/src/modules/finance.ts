@@ -8,7 +8,7 @@ import { HookCtx, HooksService, Row } from '../engine/hooks';
 import { parse, ResourceService } from '../engine/resource.service';
 import { WorkflowService } from '../engine/workflow.service';
 import { NotifyService } from '../platform/notify.service';
-import { Tx } from '../platform/audit.service';
+import { AuditService, Tx } from '../platform/audit.service';
 import { LedgerService } from '../platform/ledger.service';
 import { NumberingService } from '../platform/numbering.service';
 import { PrismaService } from '../platform/prisma.service';
@@ -35,6 +35,7 @@ export class FinanceController {
     private settings: SettingsService,
     private workflow: WorkflowService,
     private notify: NotifyService,
+    private audit: AuditService,
     hooks: HooksService,
   ) {
     hooks.on('finance.cash', {
@@ -501,6 +502,53 @@ export class FinanceController {
       await this.payment(tx, user, { direction: 'out', partyType: b.vendorId ? 'vendor' : 'other', partyId: b.vendorId ?? '', refType: 'finance.journal', refId: je.id, amount: b.amount, accountId: b.paidFromId, journalId: je.id, reference: b.reference });
       return je;
     });
+  }
+
+  /**
+   * Cash & bank balances anchored to reality: each account's last confirmed balance (counted cash, bank statement)
+   * plus what the app recorded after that date. Not everything goes through the app, so the confirmed figure is
+   * the truth and the recorded movements are what changed since.
+   */
+  @Get('cash-balances')
+  @Permissions('finance.account.view')
+  async cashBalances(@CurrentUser() user: AuthUser, @Query('format') format: string | undefined, @Res({ passthrough: true }) res: Response) {
+    const accounts = await this.prisma.account.findMany({ where: { companyId: user.companyId, deletedAt: null, isGroup: false, OR: [{ isCash: true }, { isBank: true }] }, orderBy: { code: 'asc' } });
+    const rows = [];
+    for (const a of accounts) {
+      const confirmed = ((a.custom as Row | null)?.confirmed ?? null) as { amount: number; date: string; by?: string } | null;
+      const since = confirmed ? new Date(`${confirmed.date}T23:59:59.999Z`) : undefined;
+      const agg = await this.prisma.journalLine.aggregate({ where: { accountId: a.id, ...(since ? { date: { gt: since } } : {}) }, _sum: { debit: true, credit: true } });
+      const moneyIn = Number(agg._sum.debit ?? 0);
+      const moneyOut = Number(agg._sum.credit ?? 0);
+      rows.push({
+        id: a.id, code: a.code, name: a.name, kind: a.isBank ? 'Bank' : 'Cash',
+        confirmedAmount: confirmed ? Number(confirmed.amount) : null, confirmedOn: confirmed?.date ?? null,
+        moneyIn, moneyOut, balance: fromMinor(toMinor(confirmed?.amount ?? 0) + toMinor(moneyIn) - toMinor(moneyOut)),
+      });
+    }
+    const total = fromMinor(rows.reduce((t, r) => t + toMinor(r.balance), 0));
+    if (!format) return { rows, total };
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: user.companyId } });
+    return sendReport(res, format, {
+      title: 'Cash & bank balances', company, columns: ['code', 'name', 'kind', 'confirmedAmount', 'confirmedOn', 'moneyIn', 'moneyOut', 'balance'],
+      rows: rows as unknown as Row[], totals: [['Total', total]],
+    });
+  }
+
+  /** Records the real balance of a cash or bank account on a date (count / statement): the point balances run from. */
+  @Post('accounts/:id/confirm-balance')
+  @Permissions('finance.account.update')
+  async confirmBalance(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() body: unknown) {
+    const b = parse(z.object({ amount: z.coerce.number(), date: z.string().date() }), body);
+    const a = await this.prisma.account.findFirst({ where: { id, companyId: user.companyId, deletedAt: null, OR: [{ isCash: true }, { isBank: true }] } });
+    if (!a) throw new NotFoundException('Not a cash or bank account');
+    if (b.date > new Date().toISOString().slice(0, 10)) throw new BadRequestException('The date cannot be in the future');
+    const confirmed = { amount: b.amount, date: b.date, by: user.name, at: new Date().toISOString() };
+    await this.prisma.$transaction(async (tx) => {
+      await tx.account.update({ where: { id }, data: { custom: { ...((a.custom as Prisma.JsonObject | null) ?? {}), confirmed } } });
+      await this.audit.log({ companyId: user.companyId, userId: user.id, action: 'confirm_balance', entityType: 'finance.account', entityId: id, before: { confirmed: (a.custom as Row | null)?.confirmed ?? null }, after: { confirmed } }, tx);
+    });
+    return confirmed;
   }
 
   @Get('trial-balance')
