@@ -49,7 +49,7 @@ const registerSchema = z.object({
   serials: z.array(z.string().trim().min(1).max(191)).min(1).max(1000),
   /** Extra codes per serial (IMEI 2, MAC…), e.g. { "SN1": ["IMEI2"] }. */
   codes: z.record(z.array(z.string().trim().min(1).max(191)).max(20)).optional(),
-  productId: z.string().optional(), itemName: z.string().max(191).optional(), brand: z.string().max(191).optional(), model: z.string().max(191).optional(),
+  productId: z.string().optional(), itemName: z.string().max(191).optional(), brand: z.string().max(191).optional(), model: z.string().max(191).optional(), frequency: z.string().max(191).optional(),
   status: z.enum(STATUSES).optional(), location: z.string().max(191).optional(), holder: z.string().max(191).optional(),
   customerId: z.string().optional(), warrantyUntil: z.string().optional(), notes: z.string().optional(),
 });

@@ -343,7 +343,7 @@ function Register({ onDone }: { onDone(): void }) {
           {txt('itemName', 'Item name', 'e.g. Handheld radio')}{txt('brand', 'Make')}{txt('model', 'Model')}
           <label className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">Status</span>
             <Select value={String(f.status ?? '')} onChange={(e) => set('status', e.target.value)}>{STATUSES.map((s) => <option key={s} value={s}>{nice(s)}</option>)}</Select></label>
-          {txt('location', 'Location', 'Site, vehicle, rack…')}{txt('holder', 'Held by', 'Person or team')}
+          {txt('location', 'Location', 'Site, vehicle, rack…')}{txt('holder', 'Held by', 'Person or team')}{txt('frequency', 'Frequency (optional)', 'e.g. 151.250 MHz')}
           <label className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">Customer (optional)</span><RefPicker f={{ name: 'customerId', type: 'string', ref: 'sales.customer' }} value={f.customerId} onChange={(v) => set('customerId', v)} /></label>
           <label className="block text-sm"><span className="mb-1 block text-xs text-muted-foreground">Warranty until</span><Input type="date" value={String(f.warrantyUntil ?? '')} onChange={(e) => set('warrantyUntil', e.target.value)} /></label>
         </div>

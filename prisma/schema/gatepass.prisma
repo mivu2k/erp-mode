@@ -34,6 +34,8 @@ model GatepassLine {
   gatepass    Gatepass @relation(fields: [gatepassId], references: [id], onDelete: Cascade)
   productId   String?
   serial      String?
+  /// Optional: the frequency the unit goes out on (copied to the serial unit at check-out)
+  frequency   String?
   description String?
   qty         Decimal  @db.Decimal(18, 3)
   returnedQty Decimal  @default(0) @db.Decimal(18, 3)

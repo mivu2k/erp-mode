@@ -1116,6 +1116,19 @@ test('intake-level quotation, invoice and delivery cover all units; no unit is b
   assert.equal(tb.totals[0][1], tb.totals[1][1]);
 });
 
+test('serials: optional frequency on a unit, set from a gatepass line, and the frequency report', async () => {
+  const p = await call('POST', 'r/inventory.product', { name: `Radio F ${run}`, serialized: true, price: '1' });
+  await call('POST', 'serials/register', { serials: [`F1-${run}`, `F2-${run}`], productId: p.id, frequency: '151.250 MHz' });
+  const [u1] = await list('serials.item', { serial: `F1-${run}` });
+  assert.equal(u1.frequency, '151.250 MHz', 'set when registering');
+  const gp = await call('POST', 'r/gatepass.pass', { type: 'outward_returnable', partyName: `Site ${run}`, expectedReturn: '2026-12-31', lines: [{ serial: `F2-${run}`, qty: 1, frequency: '462.550 MHz', description: 'Radio' }] });
+  await approveAll('gatepass.pass', gp.id);
+  await call('POST', `gatepass/${gp.id}/check`, { direction: 'out' });
+  assert.equal((await list('serials.item', { serial: `F2-${run}` }))[0].frequency, '462.550 MHz', 'gatepass line frequency follows the unit out');
+  const rep = await call('GET', 'reports/standard/ser-frequency');
+  assert.ok(rep.columns.includes('frequency') && rep.rows.some((r: J) => r.serial === `F1-${run}`), 'frequency report lists it');
+});
+
 test('serial tracking works standalone: register by hand, skip duplicates, track moves', async () => {
   const a = `MAN-A-${run}`, b = `MAN-B-${run}`;
   const r1 = (await call('POST', 'serials/register', { serials: [a, b, a], itemName: "Field gateway", brand: "Acme", location: "HQ rack 2" }));

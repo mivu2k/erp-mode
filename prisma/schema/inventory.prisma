@@ -134,6 +134,8 @@ model SerialItem {
   itemName      String?
   brand         String?
   model         String?
+  /// Optional radio frequency the unit is set to (e.g. 151.250 MHz)
+  frequency String?
   /// Free-text whereabouts when not in a warehouse (site, vehicle, rack…) and who holds it
   location      String?
   holder        String?

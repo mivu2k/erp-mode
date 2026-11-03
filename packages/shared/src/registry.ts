@@ -335,7 +335,7 @@ export const RESOURCES: ResourceDef[] = [
   },
   {
     key: 'serials.item', model: 'SerialItem', label: 'Serial Register', title: 'serial', subtitle: 'status', createPath: '/serials?register=1',
-    list: ['serial', 'itemName', 'productId', 'status', 'location', 'holder', 'customerId', 'warrantyUntil'], search: ['serial', 'codes', 'itemName', 'brand', 'model', 'location', 'holder', 'notes'], barcode: 'serial',
+    list: ['serial', 'itemName', 'productId', 'frequency', 'status', 'location', 'holder', 'customerId', 'warrantyUntil'], search: ['serial', 'codes', 'itemName', 'brand', 'model', 'frequency', 'location', 'holder', 'notes'], barcode: 'serial',
     refs: { productId: 'inventory.product', warehouseId: 'inventory.warehouse', vendorId: 'purchase.vendor', customerId: 'sales.customer', employeeId: 'hrm.employee' },
     // warehouse/vendor/receipt/sale are maintained by stock postings; everything else can be entered by hand.
     readonly: ['warehouseId', 'vendorId', 'receivedAt', 'soldAt'], ops: ['create', 'update', 'delete'], printable: true,

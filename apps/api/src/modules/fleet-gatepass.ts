@@ -162,6 +162,8 @@ export class FleetGatepassController {
       const gp = await this.resources.load(tx, user, 'gatepass.pass', id, 'view');
       const gl = await tx.gatepassLine.findMany({ where: { gatepassId: id } });
       const type = String(gp.type);
+      // A frequency entered on a line follows its unit out: the serial register shows what the unit is set to.
+      if (b.direction === 'out') for (const l of gl) if (l.serial && l.frequency) await tx.serialItem.updateMany({ where: { companyId: user.companyId, serial: l.serial }, data: { frequency: l.frequency } });
       const base = { companyId: user.companyId, refType: 'gatepass.pass', refId: id, userId: user.id };
       const moves = async (l: (typeof gl)[number], qty: number, dir: 1 | -1, condition?: string) => {
         if (!l.productId) return;

@@ -811,3 +811,11 @@ test('admin: one entry each for roles and company; old list links land there', a
   await expect(page.getByRole('button', { name: 'Company details' })).toBeVisible();
   await expect(page.locator('aside').getByRole('link', { name: 'Branding', exact: true })).toHaveCount(0);
 });
+
+test('serials: register dialog takes an optional frequency; frequency report in Reports', async ({ page }) => {
+  await page.goto('/serials?register=1');
+  await expect(page.getByText('Frequency (optional)')).toBeVisible();
+  await page.goto('/reports');
+  await page.getByPlaceholder('Find a report…').fill('frequency');
+  await expect(page.getByText('Serials with frequency').first()).toBeVisible();
+});
