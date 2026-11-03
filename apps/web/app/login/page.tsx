@@ -24,9 +24,10 @@ function LoginForm() {
         setError('If that email exists, a reset link has been sent.');
         return;
       }
-      const r = await api<{ accessToken?: string; twoFactorRequired?: boolean }>('auth/login', 'POST', { login, password, ...(otp !== null ? { otp } : {}) });
+      const r = await api<{ accessToken?: string; twoFactorRequired?: boolean; mustChangePassword?: boolean }>('auth/login', 'POST', { login, password, ...(otp !== null ? { otp } : {}) });
       if (r.twoFactorRequired) return setOtp('');
       setToken(r.accessToken!);
+      try { if (r.mustChangePassword) sessionStorage.setItem('erp.mustChangePassword', '1'); else sessionStorage.removeItem('erp.mustChangePassword'); } catch { /* storage off */ }
       router.replace(next.startsWith('/') ? next : '/');
     } catch (err) {
       setError(err);

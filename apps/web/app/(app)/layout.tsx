@@ -210,7 +210,7 @@ function Shell({ children }: { children: ReactNode }) {
             <Link href="/account" aria-label={t('My account')} className="ms-1 grid h-8 w-8 place-items-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">{initials}</Link>
           </div>
         </header>
-        <main className="mx-auto w-full min-w-0 max-w-[1600px] flex-1 p-4 pb-24 lg:p-8 lg:pb-8">{children}</main>
+        <main className="mx-auto w-full min-w-0 max-w-[1600px] flex-1 p-4 pb-24 lg:p-8 lg:pb-8"><DefaultPasswordWarning />{children}</main>
         <nav aria-label="Quick" className="no-print fixed inset-x-0 bottom-0 z-30 grid h-14 grid-cols-4 border-t border-border bg-card/95 text-center text-[11px] backdrop-blur lg:hidden">
           <Link href="/" className={cx("flex flex-col items-center justify-center gap-0.5", path === "/" && "text-primary")}><Icon name="home" />{t('Home')}</Link>
           <Link href="/approvals" className={cx("flex flex-col items-center justify-center gap-0.5", path === "/approvals" && "text-primary")}><Icon name="check" />{t('Approvals')}</Link>
@@ -318,5 +318,17 @@ function SearchDialog({ open, onClose }: { open: boolean; onClose(): void }) {
         ))}
       </ul>
     </Dialog>
+  );
+}
+
+/** Signed in with the password the install was seeded with: a red bar until it is changed. */
+function DefaultPasswordWarning() {
+  const [show, setShow] = useState(false);
+  useEffect(() => { try { setShow(sessionStorage.getItem('erp.mustChangePassword') === '1'); } catch { /* storage off */ } }, []);
+  if (!show) return null;
+  return (
+    <p role="alert" className="mb-4 rounded-lg px-4 py-3 text-sm font-medium" style={{ color: 'var(--tone-red)', background: 'var(--tone-red-bg)' }}>
+      You are using the default password. Anyone who knows it can sign in as you — <Link className="underline" href="/account">change it now</Link>.
+    </p>
   );
 }

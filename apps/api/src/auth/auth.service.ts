@@ -130,6 +130,19 @@ export class AuthService {
     new Logger('Auth').log(`Password reset for ${email}: ${process.env.WEB_URL ?? 'http://localhost:3000'}/reset?token=${token}`);
   }
 
+  async changePassword(userId: string, current: string, next: string, keepRefreshToken?: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    if (!(await verifyPassword(current, user.passwordHash))) throw new BadRequestException('Your current password is not right');
+    const pw = passwordSchema.safeParse(next);
+    if (!pw.success) throw new BadRequestException(pw.error.flatten());
+    if (current === next) throw new BadRequestException('Choose a password different from the current one');
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(next), failedLogins: 0, lockedUntil: null } });
+    // Every other device signs in again; this one keeps its session.
+    const keep = keepRefreshToken ? (await this.prisma.refreshToken.findFirst({ where: { tokenHash: sha256(keepRefreshToken) }, select: { familyId: true } }))?.familyId : undefined;
+    await this.prisma.refreshToken.updateMany({ where: { userId, revokedAt: null, ...(keep ? { familyId: { not: keep } } : {}) }, data: { revokedAt: new Date() } });
+    await this.audit.log({ companyId: user.companyId, userId, action: 'password_change', entityType: 'core.user', entityId: userId });
+  }
+
   async reset(token: string, password: string) {
     const pw = passwordSchema.safeParse(password);
     if (!pw.success) throw new BadRequestException(pw.error.flatten());

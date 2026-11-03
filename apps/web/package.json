@@ -14,7 +14,7 @@
     "@erp/ui": "workspace:*",
     "@tanstack/react-query": "^5.103.2",
     "barcode-detector": "3.2.2",
-    "next": "^16.3.6",
+    "next": "^16.4.4",
     "react": "^19.3.0",
     "react-dom": "^19.3.0"
   },

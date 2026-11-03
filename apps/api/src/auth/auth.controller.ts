@@ -22,7 +22,17 @@ export class AuthController {
   @HttpCode(200)
   async login(@Body(new ZodPipe(loginSchema)) body: LoginInput, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const r = await this.auth.login(body.login, body.password, client(req), body.otp);
-    return 'twoFactorRequired' in r ? r : this.respond(res, r);
+    if ('twoFactorRequired' in r) return r;
+    // Still on the password the install was seeded with: the app asks for a new one until it's changed.
+    return { ...this.respond(res, r), ...(body.password === (process.env.SEED_ADMIN_PASSWORD ?? 'Admin@12345') ? { mustChangePassword: true } : {}) };
+  }
+
+  /** Change your own password: the current one is required; your other devices are signed out. */
+  @Post('password')
+  @HttpCode(204)
+  async changePassword(@CurrentUser() user: AuthUser, @Body() b: { current?: string; next?: string }, @Req() req: Request) {
+    const own = req.cookies?.[COOKIE];
+    await this.auth.changePassword(user.id, String(b?.current ?? ''), String(b?.next ?? ''), typeof own === 'string' ? own : undefined);
   }
 
   @Public()
@@ -112,7 +122,9 @@ export class AuthController {
     res.cookie(COOKIE, t.refreshToken, {
       httpOnly: true, secure: process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : process.env.NODE_ENV === 'production', sameSite: 'strict', path: '/api/auth', expires: t.refreshExpiresAt,
     });
-    return t;
+    // The refresh token lives only in the httpOnly cookie: never in a body a page script could read.
+    const { refreshToken: _rt, ...rest } = t;
+    return rest;
   }
 }
 

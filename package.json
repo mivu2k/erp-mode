@@ -23,5 +23,13 @@
   },
   "dependencies": {
     "@prisma/client": "^6.16.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "body-parser@>=2.0.0 <2.4.0": "2.4.0",
+      "multer@>=2.0.0 <2.5.0": "2.5.0",
+      "source-map-js@>=1.0.0 <1.2.2": "1.2.2",
+      "sharp@<0.35.5": "0.35.5"
+    }
   }
 }

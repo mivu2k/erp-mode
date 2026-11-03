@@ -39,12 +39,21 @@ let ctx: J = {};
 test('auth + meta', async () => {
   assert.equal((await call('GET', 'health')).status, 'ok');
   await assert.rejects(call('POST', 'auth/login', { login: 'admin@erp.local', password: 'wrong' }), /401/);
-  const r = await call('POST', 'auth/login', { login: 'admin@erp.local', password: 'Admin@12345' });
+  // The refresh token travels only in the httpOnly cookie, never in a response body.
+  const cookieOf = (res: Response) => /(?:^|[ ,])rt=([^;]+)/.exec(res.headers.get('set-cookie') ?? '')?.[1] ?? '';
+  const post = (path: string, body: object, cookie?: string) => fetch(`${API}/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(cookie ? { Cookie: `rt=${cookie}` } : {}) }, body: JSON.stringify(body) });
+  const lr = await post('auth/login', { login: 'admin@erp.local', password: 'Admin@12345' });
+  const r = await lr.json();
   token = r.accessToken;
-  assert.ok(r.refreshToken);
-  const rotated = await call('POST', 'auth/refresh', { refreshToken: r.refreshToken });
-  await assert.rejects(call('POST', 'auth/refresh', { refreshToken: r.refreshToken }), /401/); // reuse detected
-  await assert.rejects(call('POST', 'auth/refresh', { refreshToken: rotated.refreshToken }), /401/); // whole family revoked
+  assert.equal(r.refreshToken, undefined, 'not in the body');
+  assert.equal(r.mustChangePassword, true, 'seeded default password is flagged');
+  const first = cookieOf(lr);
+  assert.ok(first, 'set as a cookie');
+  const rr = await post('auth/refresh', {}, first);
+  assert.equal(rr.status, 200);
+  const rotated = cookieOf(rr);
+  assert.equal((await post('auth/refresh', {}, first)).status, 401, 'reuse detected');
+  assert.equal((await post('auth/refresh', {}, rotated)).status, 401, 'whole family revoked');
   const meta = await call('GET', 'meta');
   assert.ok(meta.resources.length > 50);
   const accounts = await list('finance.account', { code: { in: ['1110', '1120'] } });
@@ -959,6 +968,20 @@ test('utilities: site → connection → readings → bill (auto units & charges
   assert.deepEqual([row.lastReading.reading, row.avgUnits, row.open], [10350, 350, 0]);
   const tb = await call('GET', 'finance/trial-balance');
   assert.equal(tb.totals[0][1], tb.totals[1][1], 'ledger still balances');
+});
+
+test('change your own password: needs the current one, follows the strength rules, then works for sign-in', async () => {
+  const u = await call('POST', 'r/core.user', { name: `Pw ${run}`, email: `pw.${run}@erp.local`, password: 'Secret123' });
+  assert.ok(u.id);
+  const admin = token;
+  token = (await call('POST', 'auth/login', { login: `pw.${run}@erp.local`, password: 'Secret123' })).accessToken;
+  try {
+    await assert.rejects(call('POST', 'auth/password', { current: 'wrong', next: 'NewSecret456' }), /current password is not right/);
+    await assert.rejects(call('POST', 'auth/password', { current: 'Secret123', next: 'short' }), /400/);
+    await call('POST', 'auth/password', { current: 'Secret123', next: 'NewSecret456' });
+    await assert.rejects(call('POST', 'auth/login', { login: `pw.${run}@erp.local`, password: 'Secret123' }), /401/);
+    assert.ok((await call('POST', 'auth/login', { login: `pw.${run}@erp.local`, password: 'NewSecret456' })).accessToken);
+  } finally { token = admin; }
 });
 
 test('employee self-service: an Employee-role user sees exactly their own records', async () => {

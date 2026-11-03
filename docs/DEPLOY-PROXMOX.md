@@ -532,3 +532,19 @@ mysql -uerp -p erp                           # database shell
 /opt/erp/scripts/backup-lxc.sh               # backup now
 nginx -t && systemctl reload nginx           # after editing the proxy
 ```
+
+## 15. Production checklist
+
+Go through this once before real users start, and again after any server rebuild.
+
+1. **`NODE_ENV=production`** in `/opt/erp/.env`. It turns on secure cookies, hides the API reference, and makes the checks below enforce themselves.
+2. **`JWT_ACCESS_SECRET`**: at least 32 random characters (`openssl rand -hex 32`). The API refuses to start in production with a shorter one. Changing it signs everyone out.
+3. **`FIELD_ENCRYPTION_KEY`**: its own random value (`openssl rand -hex 32`). **Never change it after go-live**: it encrypts stored secrets (2FA keys, SMTP password), which become unreadable with a new key. Keep a copy off the server with the backups.
+4. **Admin password**: sign in as `admin@erp.local` and change it under **My account › Change password**. Until you do, a red bar says the default password is in use.
+5. **`CORS_ORIGINS`**: only your own web address, e.g. `https://erp.example.com`.
+6. **HTTPS**: keep `COOKIE_SECURE` unset (secure cookies). Set `COOKIE_SECURE=false` only for plain `http://` on a private LAN.
+7. **`API_DOCS`**: leave unset. Set `API_DOCS=1` only while an integrator needs `/api/docs`.
+8. **Backups**: run `scripts/backup-lxc.sh` once by hand and check that it prints `backup ok`. Then check the nightly log `/var/log/erp-backup.log` weekly. A failed dump now logs `backup FAILED` and exits with an error.
+9. **Restore drill**: once, restore a backup into a spare container (section 14) and sign in. A backup you have never restored is not yet a backup.
+10. **Updates**: after `git pull`, always run `pnpm install --frozen-lockfile`, `pnpm prisma generate`, `pnpm build`, `pnpm prisma migrate deploy`, then restart both services. Take a backup first.
+
