@@ -200,7 +200,7 @@ ${body}
 ${items ? `<hr>${items}` : ''}
 ${d.totals?.length ? `<hr>${d.totals.map(([k, v], i) => row(esc(k), esc(money(v)), i === d.totals!.length - 1 ? 'total' : '')).join('')}` : ''}
 ${d.words ? `<div class="note"><b>In words:</b> ${esc(d.words)}</div>` : ''}
-<div class="codes">${d.qr ? `<div class="qr">${this.qrSvg(d.qr)}</div>` : d.barcode ? `<div class="qr">${this.qrSvg(d.barcode)}</div>` : ''}</div>
+<div class="codes">${d.barcode ? `<div class="bc">${this.barcodeSvg(d.barcode)}</div>` : ''}${d.qr ? `<div class="qr">${this.qrSvg(d.qr)}</div>` : ''}</div>
 ${d.qr && d.footer ? `<div class="qrcap">${esc(d.footer)}</div>` : ''}
 ${d.note ? `<div class="note">${esc(d.note)}</div>` : ''}
 ${sign}

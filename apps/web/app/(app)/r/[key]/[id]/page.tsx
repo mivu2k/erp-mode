@@ -225,7 +225,7 @@ export default function RecordPage() {
       {!isNew && <Tabs value={tab} onChange={setTab} tabs={[{ key: 'details', label: t('Details') }, { key: 'files', label: t('Attachments') }, { key: 'activity', label: t('Activity') }, ...(r.timeTracking ? [{ key: 'time', label: t('Time') }] : []), ...(r.workflow ? [{ key: 'approvals', label: t('Approvals') }] : []), ...(key === 'core.user' ? [{ key: 'roles', label: t('Roles') }] : [])]} />}
 
       {(isNew || tab === 'details') && (
-        <div className={summary.length || qc || facts.length ? 'grid items-start gap-4 lg:grid-cols-[1fr_18rem]' : ''}>
+        <div className={!isNew || summary.length || qc || facts.length ? 'grid items-start gap-4 lg:grid-cols-[1fr_18rem]' : ''}>
           <div className="min-w-0 space-y-4">
             {readMode ? (
               <>
@@ -270,8 +270,9 @@ export default function RecordPage() {
               </Card>
             )}
           </div>
+          <div className="space-y-4 lg:sticky lg:top-20">
           {(summary.length > 0 || qc || facts.length > 0) && (
-            <Card title="Summary" className="lg:sticky lg:top-20">
+            <Card title="Summary">
               <dl className="space-y-2.5 text-sm">
                 {summary.map((f) => (
                   <div key={f.name} className="flex items-start justify-between gap-3">
@@ -306,6 +307,8 @@ export default function RecordPage() {
               </dl>
             </Card>
           )}
+          {!isNew && <ScanCodes resource={key} id={id} />}
+          </div>
         </div>
       )}
       {pairing && (
@@ -599,5 +602,22 @@ function InstallmentPlan({ plan, mode, custom }: { plan: ReturnType<typeof nextI
         {now !== null && <><dt className="font-medium">This payment</dt><dd className={cx('text-end font-semibold tabular-nums', now > plan.outstanding && 'text-danger')}>{f(now)}{now > plan.outstanding ? ' — more than outstanding' : ''}</dd></>}
       </dl>
     </div>
+  );
+}
+
+/** The record's barcode (its number) and QR (opens it), the same codes as on its print: scan either to find it. */
+function ScanCodes({ resource, id }: { resource: string; id: string }) {
+  const [c, setC] = useState<{ code: string; barcode: string | null; qr: string } | null>(null);
+  useEffect(() => { api<typeof c>(`print/${resource}/${id}/codes`).then(setC).catch(() => setC(null)); }, [resource, id]);
+  if (!c) return null;
+  return (
+    <Card title="Codes">
+      <div className="flex flex-col items-center gap-3">
+        {/* Server-drawn SVG (bwip-js / QR), no user markup in it. */}
+        {c.barcode && <div aria-label={`Barcode ${c.code}`} role="img" className="w-full rounded-md bg-white p-2 [&_svg]:mx-auto [&_svg]:h-16 [&_svg]:w-full" dangerouslySetInnerHTML={{ __html: c.barcode }} />}
+        <div aria-label="QR code" role="img" className="rounded-md bg-white p-2 [&_svg]:h-28 [&_svg]:w-28" dangerouslySetInnerHTML={{ __html: c.qr }} />
+        <p className="text-center text-xs text-muted-foreground">Scan with Search or scan to open this record</p>
+      </div>
+    </Card>
   );
 }

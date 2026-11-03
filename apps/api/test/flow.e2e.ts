@@ -513,6 +513,22 @@ test('finance: manual journal must balance and use real accounts; record an expe
   assert.equal(pay.direction, 'out');
 });
 
+test('every print carries a barcode and a QR; a record page can show both', async () => {
+  const pay = (await list('finance.payment'))[0];
+  const auth = { headers: { Authorization: `Bearer ${token}` } };
+  for (const size of ['a4', '80']) {
+    const html = await (await fetch(`${API}/print/finance.payment/${pay.id}?size=${size}`, auth)).text();
+    assert.match(html, /class="bc"/, `${size}: barcode of the number`);
+    assert.ok((html.match(/<svg/g) ?? []).length >= 2, `${size}: barcode + QR`);
+  }
+  const c = await call('GET', `print/finance.payment/${pay.id}/codes`);
+  assert.equal(c.code, pay.number);
+  assert.match(c.barcode, /<svg/);
+  assert.match(c.qr, /<svg/);
+  const found = await call('GET', `search/scan?code=${encodeURIComponent(pay.number)}`);
+  assert.ok(Array.isArray(found));
+});
+
 test('Ledger balances; reports; exports; audit', async () => {
   const tb = await call('GET', 'finance/trial-balance');
   assert.equal(tb.totals[0][1], tb.totals[1][1], 'trial balance debits = credits');

@@ -832,3 +832,11 @@ test('users & teams: departments and designations edited in place next to the us
   await page.getByRole('button', { name: `Delete Inspector ${run}` }).click();
   await expect(page.getByLabel(`Name of Inspector ${run}`)).toHaveCount(0);
 });
+
+test('a record page shows its barcode and QR', async ({ page, request }) => {
+  const { accessToken } = await (await request.post('/api/auth/login', { data: { login: 'admin@erp.local', password: 'Admin@12345' } })).json();
+  const job = (await (await request.get('/api/r/repair.job?pageSize=1', { headers: { Authorization: `Bearer ${accessToken}` } })).json()).rows[0];
+  await page.goto(`/r/repair.job/${job.id}`);
+  await expect(page.getByRole('img', { name: `Barcode ${job.number}` })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'QR code' })).toBeVisible();
+});

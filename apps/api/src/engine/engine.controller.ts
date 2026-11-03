@@ -378,6 +378,25 @@ export class NotificationsController {
 
 @Controller('print')
 export class PrintController {
+  /**
+   * The record's scan codes, for its page: a Code 128 barcode of its number (or its own barcode field) and a QR
+   * to open it. Same codes as on its print; anyone who can view the record may see them.
+   */
+  @Get(':key/:id/codes')
+  async codes(@CurrentUser() user: AuthUser, @Param('key') key: string, @Param('id') id: string) {
+    const m = this.resources.meta(key);
+    const rec = await this.resources.get(user, key, id);
+    const code = String((m.def.barcode ? rec[m.def.barcode] : rec[m.def.title]) ?? '').trim();
+    const link = await this.link(key, id);
+    return { code, barcode: code ? this.print.barcodeSvg(code) : null, qr: this.print.qrSvg(link) };
+  }
+
+  /** Where a record's QR leads: its page, or for a repair job the customer's tracking page. */
+  private async link(key: string, id: string) {
+    const web = process.env.WEB_URL ?? 'http://localhost:3000';
+    return key === 'repair.job' ? `${web}/track/${(await this.prisma.job.findUniqueOrThrow({ where: { id } })).trackToken}` : `${web}/r/${key}/${id}`;
+  }
+
   constructor(private resources: ResourceService, private prisma: PrismaService, private print: PrintService, private storage: StorageService) {}
 
   @Get(':key/:id')
@@ -396,9 +415,7 @@ export class PrintController {
     const m = this.resources.meta(key);
     const rec = await this.resources.get(user, key, id);
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: user.companyId } });
-    const web = process.env.WEB_URL ?? 'http://localhost:3000';
-    let qr = `${web}/r/${key}/${id}`;
-    if (key === 'repair.job') qr = `${web}/track/${(await this.prisma.job.findUniqueOrThrow({ where: { id } })).trackToken}`;
+    const qr = await this.link(key, id);
     const title = String(rec[m.def.title] ?? '');
     const code = m.def.barcode ? String(rec[m.def.barcode] ?? '') : title;
 
@@ -560,7 +577,7 @@ export class PrintController {
     const grand = rec.total !== undefined ? num(rec.approvedTotal ?? rec.total) : m.def.amountField ? num(rec[m.def.amountField]) : 0;
     const when = (rec.date ?? rec.createdAt) as Date | undefined;
     return this.print.render({
-      company, title: profile?.title ?? m.def.label.replace(/s$/, ''), number: title, fields, size, qr, barcode: m.def.barcode ? code : undefined,
+      company, title: profile?.title ?? m.def.label.replace(/s$/, ''), number: title, fields, size, qr, barcode: code || undefined, // every print carries its number as a barcode and a QR
       status: status || undefined, branch: rec.branchId ? String(cell(rec, 'branchId')) : undefined, date: when instanceof Date ? when.toISOString().slice(0, 10) : undefined, party, sections,
       words: profile?.words && grand ? amountInWords(grand, company.currency) : undefined, note: profile?.note, printedBy: user.name,
       // Thermal slips still get plain signature lines for money documents.
