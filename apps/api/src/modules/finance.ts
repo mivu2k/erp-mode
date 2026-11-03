@@ -391,7 +391,7 @@ export class FinanceController {
       }
     }
     // P & R stands alone: only its own dues, no invoices, bills or bank balances from other modules.
-    return summarizeDues(items, new Date(), 0);
+    return summarizeDues(items, new Date());
   }
 
   async payment(tx: Tx, user: AuthUser, p: { direction: string; partyType: string; partyId: string; refType: string; refId: string; amount: number; accountId: string; journalId: string; methodId?: string | null; idempotencyKey?: string; reference?: string }) {

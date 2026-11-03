@@ -763,6 +763,10 @@ test('payables & receivables: its own register — create (monthly repeat), time
   await assert.rejects(call('POST', `finance/dues/${loan.id}/pay`, { amount: 3000.01 }), /outstanding/);
   await call('POST', `finance/dues/${loan.id}/pay`, { amount: 3000 });
   assert.equal((await call('GET', `r/payables.due/${loan.id}`)).status, 'settled');
+  // An unpaid due can be corrected or removed; a settled one is locked.
+  const typo = await call('POST', 'r/payables.due', { direction: 'payable', partyName: `Typo ${run}`, description: 'x', amount: '100', dueDate: '2026-12-01' });
+  assert.equal(Number((await call('PATCH', `r/payables.due/${typo.id}`, { amount: '150' })).amount), 150);
+  await call('DELETE', `r/payables.due/${typo.id}`);
   assert.equal((await call('GET', 'r/finance.journal?pageSize=1')).total, journalsBefore, 'P & R posts nothing to the ledger');
 });
 
@@ -936,7 +940,7 @@ test('utilities: site → connection → readings → bill (auto units & charges
   assert.deepEqual([Number(bill.units), Number(bill.energyCharge), Number(bill.fixedCharge), Number(bill.total), bill.dueDate.slice(0, 10), bill.status], [350, 14000, 500, 16000, '2026-09-19', 'unpaid']);
   assert.equal(bill.siteId, site.id);
   await assert.rejects(call('POST', `utilities/connections/${conn.id}/bill`, { billDate: '2026-09-20', energyCharge: '100' }), /already has a bill for 2026-09/);
-  assert.equal(bill.dueId, null, 'nothing on P & R');
+  assert.ok(!bill.dueId, 'nothing on P & R');
   assert.equal((await list('finance.journal', { sourceType: 'utilities.bill', sourceId: bill.id })).length, 1, 'booked in the ledger: expense → payables');
 
   await call('POST', `utilities/bills/${bill.id}/dispute`, { reason: 'Wrong tariff' });

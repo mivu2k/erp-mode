@@ -292,7 +292,8 @@ export const RESOURCES: ResourceDef[] = [
     list: ['number', 'direction', 'partyName', 'description', 'dueDate', 'amount', 'paid', 'status'], search: ['number', 'partyName', 'description'],
     number: { field: 'number', docType: 'DUE', pattern: 'DUE-{YYYY}-{SEQ:5}' }, readonly: ['paid', 'status', 'partyType'], hidden: ['accountId', 'journalId'], // its own register: not posted to the ledger
     enums: { direction: ['receivable', 'payable'], partyType: ['customer', 'vendor', 'employee', 'other'] },
-    statuses: ['open', 'partially_paid', 'settled'], calendar: 'dueDate', ops: ['create'], printable: true,
+    // Its own register: an unpaid due can be corrected or removed; once money is recorded against it, it is locked.
+    statuses: ['open', 'partially_paid', 'settled'], calendar: 'dueDate', ops: ['create', 'update', 'delete'], editableWhen: ['open'], printable: true,
     actions: [{ name: 'pay', label: 'Record payment', path: 'finance/dues/:id/pay', when: ['open', 'partially_paid'], fields: { amount: { type: 'money', required: true, from: 'amount-paid' }, note: { type: 'string', label: 'Note (cheque no., how it was paid…)' } }, permission: 'payables.due.update' }],
   },
   {
@@ -607,9 +608,9 @@ export const RESOURCES: ResourceDef[] = [
   {
     key: 'utilities.bill', model: 'UtilityBill', label: 'Utility Bills', title: 'number', subtitle: 'billRef',
     list: ['number', 'connectionId', 'siteId', 'billDate', 'dueDate', 'units', 'total', 'paid', 'status'], search: ['number', 'billRef', 'notes'],
-    refs: { connectionId: 'utilities.connection', siteId: 'utilities.site', dueId: 'payables.due' },
+    refs: { connectionId: 'utilities.connection', siteId: 'utilities.site' }, hidden: ['dueId'], // bills book in the ledger themselves now
     number: { field: 'number', docType: 'UB', pattern: 'UB-{YYYY}-{SEQ:5}' }, amountField: 'total', calendar: 'dueDate', printable: true,
-    readonly: ['siteId', 'units', 'total', 'paid', 'status', 'dueId', 'paidAt'], ops: ['create'],
+    readonly: ['siteId', 'units', 'total', 'paid', 'status', 'paidAt'], ops: ['create'],
     statuses: ['unpaid', 'partially_paid', 'paid', 'disputed'],
     actions: [
       { name: 'pay', label: 'Pay bill', path: 'utilities/bills/:id/pay', when: ['unpaid', 'partially_paid'], permission: 'finance.payment.create',
